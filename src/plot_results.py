@@ -16,6 +16,8 @@ precision_at_k = [history[str(r)].get('precision_at_k') for r in rounds]
 recall_at_k = [history[str(r)].get('recall_at_k') for r in rounds]
 ndcg_at_k = [history[str(r)].get('ndcg_at_k') for r in rounds]
 hit_rate_at_k = [history[str(r)].get('hit_rate_at_k') for r in rounds]
+baseline_hit_rate = [history[str(r)].get('baseline_hit_rate') for r in rounds]
+baseline_ndcg = [history[str(r)].get('baseline_ndcg') for r in rounds]
 coverage = [history[str(r)].get('coverage') for r in rounds]
 
 # Initialize subplots
@@ -46,6 +48,7 @@ axs[0, 2].legend()
 
 # Plot NDCG@K
 axs[1, 0].plot(rounds, ndcg_at_k, label='NDCG@K', color='green')
+axs[1, 0].plot(rounds, baseline_ndcg, label='Baseline NDCG', color='red', linestyle='--')
 axs[1, 0].set_xlabel('Rounds')
 axs[1, 0].set_ylabel('NDCG')
 axs[1, 0].set_title('Normalized Discounted Cumulative Gain')
@@ -53,6 +56,7 @@ axs[1, 0].legend()
 
 # Plot Hit Rate@K
 axs[1, 1].plot(rounds, hit_rate_at_k, label='Hit Rate@K', color='purple')
+axs[1, 1].plot(rounds, baseline_hit_rate, label='Baseline Hit Rate', color='red', linestyle='--')
 axs[1, 1].set_xlabel('Rounds')
 axs[1, 1].set_ylabel('Hit Rate')
 axs[1, 1].set_title('Hit Rate@K')

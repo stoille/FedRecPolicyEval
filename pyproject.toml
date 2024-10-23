@@ -27,8 +27,10 @@ clientapp = "src.client_app:app"
 
 [tool.flwr.app.config]
 num-server-rounds = 5
-local-epochs = 5
-learning-rate = 0.0001
+local-epochs = 50
+learning-rate = 0.0005
+top-k = 200
+num-items = 9724
 
 [tool.flwr.federations]
 default = "local-simulation"
