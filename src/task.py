@@ -7,6 +7,7 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset, random_split
 import pandas as pd
 from collections import OrderedDict
+from sklearn.metrics import roc_auc_score
 
 class VAE(nn.Module):
     def __init__(self, num_items, latent_dim=100):
@@ -183,7 +184,6 @@ def get_recommendations(model, user_vector, top_k=10, device='cpu', penalty_valu
         user_vector = user_vector.to(device)
         recon_vector, _, _ = model(user_vector.unsqueeze(0)) # Get model's predictions
         recon_vector = recon_vector.squeeze(0)  # Remove batch dimension
-        print("Recon Vector (before filtering):", recon_vector)
         recon_vector[user_vector.nonzero(as_tuple=True)] -= penalty_value # Downrank items already rated
         _, indices = torch.topk(recon_vector, top_k) # Get top-k items
         
@@ -193,42 +193,48 @@ def get_recommendations(model, user_vector, top_k=10, device='cpu', penalty_valu
         return indices.cpu().numpy()
     
 def compute_metrics(model, batch, top_k, total_items, device):
-    precisions, recalls, hit_rates, ndcgs = [], [], [], []
+    precisions, recalls, ndcgs = [], [], []
     all_recommended_items = []
-    
+    roc_aucs = []  # List to store ROC AUC scores
+
     for user_vector in batch:
-        #print(f"relevant_items: {relevant_items}, len: {len(relevant_items)}")
         top_k_items = get_recommendations(model, user_vector, top_k, device)
-        #print(f"top_k_items: {top_k_items}, len: {len(top_k_items)}")
         
         interacted_items = user_vector.nonzero(as_tuple=True)[0]
         relevant_items = interacted_items.cpu().numpy()
         hits_arr = np.isin(top_k_items, relevant_items)
         hits = hits_arr.sum()
-        print(f"hits: {hits:.10f}")
-        precision = hits / top_k
-        print(f"precision: {precision:.10f}")
-        recall = hits / len(relevant_items) if len(relevant_items) > 0 else 0
-        print(f"recall: {recall:.10f}")
-        hit_rate = 1.0 if hits > 0 else 0.0
-        print(f"hit_rate: {hit_rate:.10f}")
         
-        dcg = sum([1 / np.log2(i + 2) if top_k_items[i] in relevant_items else 0 for i in range(top_k)])
+        # Prepare binary labels and scores for ROC AUC
+        actual = np.zeros(total_items)
+        actual[relevant_items] = 1
+        scores = np.zeros(total_items)
+        scores[top_k_items] = 1  # Assign scores of 1 for recommended items
+        
+        # Compute ROC AUC
+        if len(np.unique(actual)) > 1:  # ROC AUC is undefined if there's no variation in actual
+            roc_auc = roc_auc_score(actual, scores)
+            roc_aucs.append(roc_auc)
+        
+        precision = hits / top_k
+        recall = hits / len(relevant_items) if len(relevant_items) > 0 else 0
+        ndcg = sum([1 / np.log2(i + 2) if top_k_items[i] in relevant_items else 0 for i in range(top_k)])
         idcg = sum([1 / np.log2(i + 2) for i in range(min(len(relevant_items), top_k))])
-        ndcg = dcg / idcg if idcg > 0 else 0.0
-        print(f"ndcg: {ndcg:.10f}")
+        ndcg = ndcg / idcg if idcg > 0 else 0.0
+        
         precisions.append(precision)
         recalls.append(recall)
-        hit_rates.append(hit_rate)
         ndcgs.append(ndcg)
         all_recommended_items.append(top_k_items)
+        
+        print(f"Precision: {precision:.10f}, Recall: {recall:.10f}, NDCG: {ndcg:.10f}, ROC AUC: {roc_auc:.10f}")
     
     coverage = len(set(np.concatenate(all_recommended_items))) / total_items
     return {
         "precision_at_k": np.mean(precisions),
         "recall_at_k": np.mean(recalls),
-        "hit_rate_at_k": np.mean(hit_rates),
         "ndcg_at_k": np.mean(ndcgs),
+        "roc_auc": np.mean(roc_aucs),  # Return average ROC AUC
         "coverage": coverage,
     }
 
@@ -281,8 +287,8 @@ def test(net, testloader, device, top_k=10, total_items=None):
         "rmse": avg_rmse,
         "precision_at_k": np.mean([m["precision_at_k"] for m in all_metrics]),
         "recall_at_k": np.mean([m["recall_at_k"] for m in all_metrics]),
-        "hit_rate_at_k": np.mean([m["hit_rate_at_k"] for m in all_metrics]),
         "ndcg_at_k": np.mean([m["ndcg_at_k"] for m in all_metrics]),
+        "roc_auc": np.mean([m["roc_auc"] for m in all_metrics]),  # Return average ROC AUC
         "coverage": np.mean([m["coverage"] for m in all_metrics]),
     }
     return aggregated_metrics

@@ -23,6 +23,9 @@ baseline_hit_rate = [history[str(r)].get('baseline_hit_rate') for r in rounds]
 baseline_ndcg = [history[str(r)].get('baseline_ndcg') for r in rounds]
 coverage = [history[str(r)].get('coverage') for r in rounds]
 
+# Prepare data for ROC AUC
+roc_auc = [history[str(r)].get('roc_auc') for r in rounds]  # Assuming 'roc_auc' is the key for ROC AUC values
+
 # Initialize subplots
 fig, axs = plt.subplots(2, 3, figsize=(18, 10))
 
@@ -57,12 +60,12 @@ axs[1, 0].set_ylabel('NDCG')
 axs[1, 0].set_title('Normalized Discounted Cumulative Gain')
 axs[1, 0].legend()
 
-# Plot Hit Rate@K
-axs[1, 1].plot(rounds, hit_rate_at_k, label='Hit Rate@K', color='purple')
-axs[1, 1].plot(rounds, baseline_hit_rate, label='Baseline Hit Rate', color='red', linestyle='--')
+# Plot ROC AUC instead of Hit Rate@K
+axs[1, 1].plot(rounds, roc_auc, label='ROC AUC', color='blue')  # Change the label and color as needed
+# axs[1, 1].plot(rounds, baseline_hit_rate, label='Baseline Hit Rate', color='red', linestyle='--')  # Remove baseline hit rate plot
 axs[1, 1].set_xlabel('Rounds')
-axs[1, 1].set_ylabel('Hit Rate')
-axs[1, 1].set_title('Hit Rate@K')
+axs[1, 1].set_ylabel('ROC AUC')
+axs[1, 1].set_title('ROC AUC')
 axs[1, 1].legend()
 
 # Plot Coverage
