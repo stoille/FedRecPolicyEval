@@ -1,5 +1,8 @@
 import json
 import matplotlib.pyplot as plt
+from sklearn.manifold import TSNE
+import torch
+import numpy as np
 
 # Load history
 with open('history.json', 'r') as f:

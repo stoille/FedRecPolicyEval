@@ -75,9 +75,16 @@ class MovieLensDataset(Dataset):
         return user_input
 
 def load_data(partition_id, num_partitions):
+    #ratings = pd.read_csv(
+    #    "~/dev/ml-latest-small/ratings.csv",
+    #    sep=",",
+    #    usecols=["userId", "movieId", "rating"],
+    #)
     ratings = pd.read_csv(
-        "~/dev/ml-latest-small/ratings.csv",
-        sep=",",
+        "~/dev/ml-1m/ratings.dat",
+        sep="::",
+        engine='python',
+        names=["userId", "movieId", "rating", "timestamp"],
         usecols=["userId", "movieId", "rating"],
     )
     unique_movie_ids = ratings['movieId'].unique()
@@ -87,10 +94,10 @@ def load_data(partition_id, num_partitions):
     user_group = ratings.groupby("userId")
     user_ids = list(user_group.groups.keys())
     total_users = len(user_ids)
-    print(f"total_users: {total_users}")
-    print(f"num_partitions: {num_partitions}")
+    #print(f"total_users: {total_users}")
+    #print(f"num_partitions: {num_partitions}")
     partition_size = total_users // num_partitions
-    print(f"partition_size: {partition_size}")
+    #print(f"partition_size: {partition_size}")
     start_idx = partition_id * partition_size
     end_idx = total_users if partition_id == num_partitions - 1 else start_idx + partition_size
     partition_user_ids = user_ids[start_idx:end_idx]
@@ -111,8 +118,8 @@ def load_data(partition_id, num_partitions):
     return trainloader, testloader, num_items
 
 def loss_function(recon_x, x, mu, logvar, epoch = 1, num_epochs = 1):
-    print(f"Sample input: {x[0]}")
-    print(f"Sample reconstruction: {recon_x[0]}")
+    #print(f"Sample input: {x[0]}")
+    #print(f"Sample reconstruction: {recon_x[0]}")
     # Multi-objective loss
     reconstruction_loss = F.binary_cross_entropy(recon_x, x, reduction='mean')
     
@@ -120,17 +127,17 @@ def loss_function(recon_x, x, mu, logvar, epoch = 1, num_epochs = 1):
     kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
     
     # Ranking loss component
-    pos_mask = (x > 0).float()
-    neg_mask = 1 - pos_mask
+    #pos_mask = (x > 0).float()
+    #neg_mask = 1 - pos_mask
     
     # Margin ranking loss
-    margin = 0.5
-    diff = recon_x * pos_mask - recon_x * neg_mask
-    ranking_loss = torch.mean(torch.clamp(margin - diff, min=0.0))
+    #margin = 0.5
+    #diff = recon_x * pos_mask - recon_x * neg_mask
+    #ranking_loss = torch.mean(torch.clamp(margin - diff, min=0.0))
     
     beta = min(epoch / (num_epochs/4), 1.0) * 0.1
-    return reconstruction_loss + beta * kl_loss + 0.1 * ranking_loss
-
+    return reconstruction_loss + beta * kl_loss #+ 0.1 * ranking_loss
+    #return reconstruction_loss # Remove KL divergence and ranking loss for now to debug
 def compute_rmse(recon_batch, batch):
     mask = batch > 0
     mse = F.mse_loss(recon_batch[mask], batch[mask], reduction='mean')
@@ -170,14 +177,19 @@ def popularity_baseline(trainloader, testloader, top_k):
         'hit_rate': np.mean(hits),
         'ndcg': np.mean(ndcg_scores)
     }
-def get_recommendations(model, user_vector, top_k=10, device='cpu'):
+def get_recommendations(model, user_vector, top_k=10, device='cpu', penalty_value = 0.1):
     model.eval()
     with torch.no_grad():
         user_vector = user_vector.to(device)
-        recon_vector, _, _ = model(user_vector.unsqueeze(0))
-        recon_vector = recon_vector.squeeze(0)
-        recon_vector[user_vector.nonzero()] = -float('inf')
-        _, indices = torch.topk(recon_vector, top_k)
+        recon_vector, _, _ = model(user_vector.unsqueeze(0)) # Get model's predictions
+        recon_vector = recon_vector.squeeze(0)  # Remove batch dimension
+        print("Recon Vector (before filtering):", recon_vector)
+        recon_vector[user_vector.nonzero(as_tuple=True)] -= penalty_value # Downrank items already rated
+        _, indices = torch.topk(recon_vector, top_k) # Get top-k items
+        
+        assert user_vector.device == recon_vector.device
+        assert user_vector.shape == recon_vector.shape
+        
         return indices.cpu().numpy()
     
 def compute_metrics(model, batch, top_k, total_items, device):
@@ -185,23 +197,26 @@ def compute_metrics(model, batch, top_k, total_items, device):
     all_recommended_items = []
     
     for user_vector in batch:
-        actual = user_vector
-        interacted_items = actual.nonzero(as_tuple=True)[0]
-        relevant_items = interacted_items.cpu().numpy()
-        
+        #print(f"relevant_items: {relevant_items}, len: {len(relevant_items)}")
         top_k_items = get_recommendations(model, user_vector, top_k, device)
+        #print(f"top_k_items: {top_k_items}, len: {len(top_k_items)}")
         
+        interacted_items = user_vector.nonzero(as_tuple=True)[0]
+        relevant_items = interacted_items.cpu().numpy()
         hits_arr = np.isin(top_k_items, relevant_items)
         hits = hits_arr.sum()
-        
+        print(f"hits: {hits:.10f}")
         precision = hits / top_k
+        print(f"precision: {precision:.10f}")
         recall = hits / len(relevant_items) if len(relevant_items) > 0 else 0
+        print(f"recall: {recall:.10f}")
         hit_rate = 1.0 if hits > 0 else 0.0
+        print(f"hit_rate: {hit_rate:.10f}")
         
         dcg = sum([1 / np.log2(i + 2) if top_k_items[i] in relevant_items else 0 for i in range(top_k)])
         idcg = sum([1 / np.log2(i + 2) for i in range(min(len(relevant_items), top_k))])
         ndcg = dcg / idcg if idcg > 0 else 0.0
-        
+        print(f"ndcg: {ndcg:.10f}")
         precisions.append(precision)
         recalls.append(recall)
         hit_rates.append(hit_rate)
@@ -247,7 +262,6 @@ def test(net, testloader, device, top_k=10, total_items=None):
     total_loss = 0.0
     total_rmse = 0.0
     all_metrics = []
-    print(f"test().top_k: {top_k}")
     with torch.no_grad():
         for batch in testloader:
             batch = batch.to(device)
@@ -280,3 +294,79 @@ def set_weights(net, parameters):
     params_dict = zip(net.state_dict().keys(), parameters)
     state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
     net.load_state_dict(state_dict, strict=True)
+
+def analyze_latent_space(model, dataloader, device):
+    model.eval()
+    latent_vectors = []
+    
+    with torch.no_grad():
+        for batch in dataloader:
+            batch = batch.to(device)
+            mu, logvar = model.encode(batch)
+            latent_vectors.append(mu.cpu().numpy())
+    
+    latent_vectors = np.concatenate(latent_vectors, axis=0)
+    
+    mean = np.mean(latent_vectors, axis=0)
+    std = np.std(latent_vectors, axis=0)
+    
+    print(f"Latent space mean: {mean.mean():.4f}")
+    print(f"Latent space std: {std.mean():.4f}")
+    
+    active_dims = np.sum(std > 0.01)
+    print(f"Number of active dimensions: {active_dims} / {len(std)}")
+
+def interpolate_users(model, user1, user2, steps=10, device='cpu'):
+    model.eval()
+    with torch.no_grad():
+        user1 = user1.to(device)
+        user2 = user2.to(device)
+        mu1, _ = model.encode(user1.unsqueeze(0))
+        mu2, _ = model.encode(user2.unsqueeze(0))
+        
+        for alpha in np.linspace(0, 1, steps):
+            interpolated = alpha * mu1 + (1 - alpha) * mu2
+            decoded = model.decode(interpolated)
+            top_k = torch.topk(decoded.squeeze(), 10).indices.cpu().numpy()
+            print(f"Alpha: {alpha:.2f}, Top 10 recommendations: {top_k}")
+
+# Call this function after training
+#analyze_latent_space(net, testloader, device)
+
+# Example usage
+#user1 = next(iter(testloader))[0]
+#user2 = next(iter(testloader))[1]
+#interpolate_users(net, user1, user2, device=device)
+
+def visualize_latent_space(model, dataloader, device):
+    model.eval()
+    latent_vectors = []
+    labels = []
+
+    with torch.no_grad():
+        for batch in dataloader:
+            batch = batch.to(device)
+            mu, _ = model.encode(batch)
+            latent_vectors.append(mu.cpu().numpy())
+            labels.extend(batch.sum(dim=1).cpu().numpy())
+
+    latent_vectors = np.concatenate(latent_vectors, axis=0)
+
+    from sklearn.manifold import TSNE
+    import matplotlib.pyplot as plt
+
+    tsne = TSNE(n_components=2, random_state=42)
+    latent_2d = tsne.fit_transform(latent_vectors)
+
+    plt.figure(figsize=(10, 8))
+    scatter = plt.scatter(latent_2d[:, 0], latent_2d[:, 1], c=labels, cmap='viridis')
+    plt.colorbar(scatter, label='Number of rated items')
+    plt.title('t-SNE visualization of latent space')
+    plt.xlabel('Dimension 1')
+    plt.ylabel('Dimension 2')
+    plt.savefig('latent_space_visualization.png')
+    plt.close()
+
+# Call this function after training
+#visualize_latent_space(net, testloader, device)
+
