@@ -58,29 +58,44 @@ class VAE(nn.Module):
         return x_recon, mu, logvar
 
 class MovieLensDataset(Dataset):
-    def __init__(self, data, num_items):
-        self.data = data
+    def __init__(self, ratings_df, num_items, mode='vae'):
+        self.mode = mode
         self.num_items = num_items
+        
+        if mode == 'vae':
+            # Group ratings by user and create sparse vectors
+            user_group = ratings_df.groupby("userId")
+            self.data = []
+            for _, group in user_group:
+                user_data = group[["movieId", "rating"]].values
+                self.data.append(user_data)
+        else:  # matrix factorization mode
+            self.users = ratings_df['userId'].values
+            self.items = ratings_df['movieId'].values
+            self.ratings = ratings_df['rating'].values / 5.0  # Normalize ratings
 
     def __len__(self):
-        return len(self.data)
+        if self.mode == 'vae':
+            return len(self.data)
+        return len(self.users)
 
     def __getitem__(self, index):
-        user_ratings = self.data[index]
-        user_input = torch.zeros(self.num_items)
-        indices = user_ratings[:, 0].astype(int)
-        values = user_ratings[:, 1]
-        if np.any(indices >= self.num_items):
-            raise ValueError("An index is out of bounds.")
-        user_input[indices] = torch.tensor(values / 5.0, dtype=torch.float32)
-        return user_input
+        if self.mode == 'vae':
+            user_ratings = self.data[index]
+            user_input = torch.zeros(self.num_items)
+            indices = user_ratings[:, 0].astype(int)
+            values = user_ratings[:, 1]
+            user_input[indices] = torch.tensor(values / 5.0, dtype=torch.float32)
+            return user_input
+        else:
+            return (
+                torch.tensor(self.users[index], dtype=torch.long),
+                torch.tensor(self.items[index], dtype=torch.long),
+                torch.tensor(self.ratings[index], dtype=torch.float32)
+            )
 
-def load_data(partition_id, num_partitions):
-    #ratings = pd.read_csv(
-    #    "~/dev/ml-latest-small/ratings.csv",
-    #    sep=",",
-    #    usecols=["userId", "movieId", "rating"],
-    #)
+def load_data(partition_id, num_partitions, mode='vae'):
+    # Load ratings
     ratings = pd.read_csv(
         "~/dev/ml-1m/ratings.dat",
         sep="::",
@@ -88,35 +103,46 @@ def load_data(partition_id, num_partitions):
         names=["userId", "movieId", "rating", "timestamp"],
         usecols=["userId", "movieId", "rating"],
     )
+    
+    # Map movie IDs to consecutive indices
     unique_movie_ids = ratings['movieId'].unique()
     movie_id_to_index = {movie_id: idx for idx, movie_id in enumerate(unique_movie_ids)}
     ratings['movieId'] = ratings['movieId'].map(movie_id_to_index)
+    
+    # Map user IDs to consecutive indices
+    unique_user_ids = ratings['userId'].unique()
+    user_id_to_index = {user_id: idx for idx, user_id in enumerate(unique_user_ids)}
+    ratings['userId'] = ratings['userId'].map(user_id_to_index)
+    
     num_items = len(unique_movie_ids)
-    user_group = ratings.groupby("userId")
-    user_ids = list(user_group.groups.keys())
-    total_users = len(user_ids)
-    #print(f"total_users: {total_users}")
-    #print(f"num_partitions: {num_partitions}")
+    num_users = len(unique_user_ids)
+    
+    # Partition data
+    total_users = len(unique_user_ids)
     partition_size = total_users // num_partitions
-    #print(f"partition_size: {partition_size}")
     start_idx = partition_id * partition_size
     end_idx = total_users if partition_id == num_partitions - 1 else start_idx + partition_size
-    partition_user_ids = user_ids[start_idx:end_idx]
-    partition_data = []
-    for user_id in partition_user_ids:
-        user_data = user_group.get_group(user_id)[["movieId", "rating"]].values
-        partition_data.append(user_data)
-    dataset = MovieLensDataset(partition_data, num_items)
-    #dataset = MovieLensDataset(partition_data[:100], num_items)  # Use only first 100 users
-
+    
+    # Filter ratings for partition
+    partition_user_ids = unique_user_ids[start_idx:end_idx]
+    partition_ratings = ratings[ratings['userId'].isin(partition_user_ids)]
+    
+    # Create dataset
+    dataset = MovieLensDataset(partition_ratings, num_items, mode)
+    
+    # Split into train/test
     train_size = int(0.8 * len(dataset))
     test_size = len(dataset) - train_size
     train_dataset, test_dataset = random_split(
         dataset, [train_size, test_size], generator=torch.Generator().manual_seed(42)
     )
-    trainloader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    testloader = DataLoader(test_dataset, batch_size=32)
-    return trainloader, testloader, num_items
+    
+    # Create dataloaders
+    batch_size = 32 if mode == 'vae' else 1024  # Larger batch size for MF
+    trainloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    testloader = DataLoader(test_dataset, batch_size=batch_size)
+    
+    return trainloader, testloader, num_items, num_users
 
 def loss_function(recon_x, x, mu, logvar, epoch = 1, num_epochs = 1):
     #print(f"Sample input: {x[0]}")
@@ -345,16 +371,27 @@ def interpolate_users(model, user1, user2, steps=10, device='cpu'):
 #interpolate_users(net, user1, user2, device=device)
 
 def visualize_latent_space(model, dataloader, device):
+    if not isinstance(model, VAE):
+        return  # Skip visualization for non-VAE models
+    
     model.eval()
     latent_vectors = []
     labels = []
 
     with torch.no_grad():
         for batch in dataloader:
-            batch = batch.to(device)
-            mu, _ = model.encode(batch)
+            # Handle different data formats
+            if isinstance(batch, torch.Tensor):
+                # VAE mode
+                user_data = batch
+            else:
+                # MF mode - skip visualization
+                return
+                
+            user_data = user_data.to(device)
+            mu, _ = model.encode(user_data)
             latent_vectors.append(mu.cpu().numpy())
-            labels.extend(batch.sum(dim=1).cpu().numpy())
+            labels.extend(user_data.sum(dim=1).cpu().numpy())
 
     latent_vectors = np.concatenate(latent_vectors, axis=0)
 
@@ -376,3 +413,147 @@ def visualize_latent_space(model, dataloader, device):
 # Call this function after training
 #visualize_latent_space(net, testloader, device)
 
+class MatrixFactorization(nn.Module):
+    def __init__(self, num_users, num_items, n_factors=100):
+        super(MatrixFactorization, self).__init__()
+        self.user_factors = nn.Embedding(num_users, n_factors, sparse=True)
+        self.item_factors = nn.Embedding(num_items, n_factors, sparse=True)
+        
+        # Initialize weights with normal distribution
+        nn.init.normal_(self.user_factors.weight, std=0.01)
+        nn.init.normal_(self.item_factors.weight, std=0.01)
+
+    def forward(self, user, item):
+        return (self.user_factors(user) * self.item_factors(item)).sum(1)
+
+def train_mf(model, trainloader, epochs, learning_rate, device):
+    model.to(device)
+    # Use SparseAdam instead of Adam
+    optimizer = torch.optim.SparseAdam(model.parameters(), lr=learning_rate)
+    
+    for epoch in range(epochs):
+        model.train()
+        total_loss = 0
+        for user, item, rating in trainloader:
+            user = user.to(device)
+            item = item.to(device)
+            rating = rating.to(device)
+            
+            optimizer.zero_grad()
+            prediction = model(user, item)
+            # Add L2 regularization manually since SparseAdam doesn't support weight_decay
+            l2_reg = torch.norm(model.user_factors(user)) + torch.norm(model.item_factors(item))
+            loss = F.mse_loss(prediction, rating) + 1e-5 * l2_reg
+            loss.backward()
+            optimizer.step()
+            
+            total_loss += loss.item()
+        
+        avg_loss = total_loss / len(trainloader)
+        print(f"Epoch {epoch+1}/{epochs}, Average Loss: {avg_loss:.4f}")
+    
+    return model
+
+def test_mf(model, testloader, device, top_k=10, total_items=None, penalty_value=0.1):
+    # Refactored test function to compute aggregated metrics similar to 'test'
+    model.to(device)
+    model.eval()
+    total_loss = 0.0
+    total_rmse = 0.0
+    all_metrics = []
+    all_recommended_items = []
+    user_item_dict = {}
+
+    with torch.no_grad():
+        # collect metrics and user-item interactions
+        for user, item, rating in testloader:
+            user = user.to(device)
+            item = item.to(device)
+            rating = rating.to(device)
+            prediction = model(user, item)
+            loss = F.mse_loss(prediction, rating.view(-1), reduction='mean')
+            total_loss += loss.item()
+            rmse = torch.sqrt(F.mse_loss(prediction, rating.view(-1), reduction='mean'))
+            total_rmse += rmse.item() * user.size(0)
+
+            # Collect user-item interactions
+            for u, i in zip(user.cpu().numpy(), item.cpu().numpy()):
+                u = int(u)
+                i = int(i)
+                if u not in user_item_dict:
+                    user_item_dict[u] = set()
+                user_item_dict[u].add(i)
+
+        # compute recommendations and metrics
+        for u in user_item_dict:
+            user_tensor = torch.tensor([u], dtype=torch.long, device=device)
+            user_embedding = model.user_factors(user_tensor)
+            all_items = torch.arange(total_items, dtype=torch.long, device=device)
+            item_embeddings = model.item_factors(all_items)
+            scores = (user_embedding * item_embeddings).sum(1)
+            rated_items = np.array(list(user_item_dict[u]))
+            
+            # Apply penalty instead of setting to -inf
+            #scores[rated_items] -= penalty_value  # Downrank instead of exclude ex: scores[rated_items] = float('-inf')
+            
+            top_k_items = torch.topk(scores, top_k).indices.cpu().numpy()
+            all_recommended_items.extend(top_k_items)
+            relevant_items = rated_items
+            hits_arr = np.isin(top_k_items, relevant_items)
+            hits = hits_arr.sum()
+            precision = hits / top_k
+            recall = hits / len(relevant_items) if len(relevant_items) > 0 else 0
+            ndcg = sum([1 / np.log2(i + 2) if top_k_items[i] in relevant_items else 0 for i in range(top_k)])
+            idcg = sum([1 / np.log2(i + 2) for i in range(min(len(relevant_items), top_k))])
+            ndcg = ndcg / idcg if idcg > 0 else 0.0
+            actual = np.zeros(total_items)
+            actual[relevant_items] = 1
+            predicted_scores = np.zeros(total_items)
+            predicted_scores[top_k_items] = scores[top_k_items].detach().cpu().numpy()
+            if len(np.unique(actual)) > 1:
+                roc_auc = roc_auc_score(actual, predicted_scores)
+            else:
+                roc_auc = float('nan')
+            #print(f"\nUser {u} metrics:")
+            #print(f"Top-k items: {top_k_items}")
+            #print(f"Relevant items: {relevant_items}")
+            #print(f"Hits array: {hits_arr}")
+            print(f"Number of hits: {hits}")
+            print(f"Precision: {precision}")
+            print(f"Recall: {recall}")
+            print(f"NDCG: {ndcg}")
+            
+            # Add sanity checks
+            if hits == 0:
+                print("Warning: No hits found!")
+                #print(f"Scores shape: {scores.shape}")
+                #print(f"Top scores: {scores[top_k_items]}")
+            
+            if ndcg == 0:
+                print("Warning: NDCG is 0!")
+                print(f"IDCG: {idcg}")
+                print(f"DCG components: {[1 / np.log2(i + 2) if top_k_items[i] in relevant_items else 0 for i in range(top_k)]}")
+
+            all_metrics.append({
+                "precision_at_k": precision,
+                "recall_at_k": recall,
+                "ndcg_at_k": ndcg,
+                "roc_auc": roc_auc,
+            })
+
+    # Print aggregate statistics
+    print("\nAggregate Statistics:")
+    print(f"Total users evaluated: {len(user_item_dict)}")
+    print(f"Average items per user: {np.mean([len(items) for items in user_item_dict.values()])}")
+    print(f"Total recommendations made: {len(all_recommended_items)}")
+
+    aggregated_metrics = {
+        "val_loss": total_loss / len(testloader.dataset),
+        "rmse": total_rmse / len(testloader.dataset),
+        "precision_at_k": np.mean([m["precision_at_k"] for m in all_metrics]),
+        "recall_at_k": np.mean([m["recall_at_k"] for m in all_metrics]),
+        "ndcg_at_k": np.mean([m["ndcg_at_k"] for m in all_metrics]),
+        "roc_auc": np.nanmean([m["roc_auc"] for m in all_metrics]),
+        "coverage": len(set(all_recommended_items)) / total_items,
+    }
+    return aggregated_metrics

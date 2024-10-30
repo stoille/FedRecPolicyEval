@@ -26,14 +26,16 @@ serverapp = "src.server_app:app"
 clientapp = "src.client_app:app"
 
 [tool.flwr.app.config]
-num-server-rounds = 50
+num-server-rounds = 5
 local-epochs = 50
 learning-rate = 0.001
 top-k = 20
 num-items = 3706 # old value for ml-latest-small: 9724
+model-type = "mf"
+num-users = 2 # for mf; must be same as num-supernodes
 
 [tool.flwr.federations]
 default = "local-simulation"
 
 [tool.flwr.federations.local-simulation]
-options.num-supernodes = 20
+options.num-supernodes = 2
