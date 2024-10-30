@@ -6,16 +6,27 @@ framework: [torch, torchvision]
 
 # Federated Recommender System Policy Evaluation with PyTorch and Flower
 
-This project evaluates how recommender systems can implement user policy control in a federated way using the Flower framework. The codebase is extended from [FedVAE](https://github.com/adap/flower/tree/main/examples/pytorch-federated-variational-autoencoder), but uses the [MovieLens](https://grouplens.org/datasets/movielens/) dataset. The default recommender system is based on a variational autoencoder (VAE) that has been conditioned on item metadata, user preferences, and user policies. Alternative implementations of policy-controlled recommender systems will be evaluated in the future.
+This project evaluates how recommender systems can implement user policy control in a federated way using the Flower framework. You may choose the recommender model to use either Matrix Factorization or Variational Autoencoder (VAE), conditioned on item metadata, user preferences, and user policies. Currently the [MovieLens](https://grouplens.org/datasets/movielens/) dataset is supported. Alternative datasets and implementations of policy-controlled recommender systems will be evaluated in the future.
 
 ## Set up the project
 
 ### Install dependencies and project
 
-Install the dependencies defined in `pyproject.toml` as well as the `fedvaeexample` package.
+Install the dependencies defined in `pyproject.toml`. Simulation has been tested using Python 3.11.6.
 
 ```bash
 pip install -e .
+```
+### Download MovieLens 1m
+
+Download [MovieLens 1m](https://grouplens.org/datasets/movielens/1m/) and extract to ~/dev.
+
+## Configure Model & Simulation Settings
+
+Edit pyproject.toml. 
+
+```bash
+model-type = <mf|vae>
 ```
 
 ## Run the Project
@@ -41,7 +52,5 @@ flwr run . --run-config num-server-rounds=5
 
 ### Visualize the results
 
-```bash
-python src/plot_results.py
-```
+Results will be automatically saved to `metrics_plots.png` and `latent_space_visualization.png` upon successful run.
 
