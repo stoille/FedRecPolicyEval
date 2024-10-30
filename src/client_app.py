@@ -13,9 +13,14 @@ class MovieLensClient(NumPyClient):
         self.testloader = testloader
         self.local_epochs = local_epochs
         self.lr = learning_rate
+        # Select device based on availability
+        self.device = torch.device("cuda" if torch.cuda.is_available() 
+                                 else "mps" if torch.backends.mps.is_available() 
+                                 else "cpu")
         # self.device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
         # Force CPU usage since MPS doesn't fully support sparse operations when running on (Metal Macbook M1/M2)
-        self.device = torch.device("cpu")
+        #self.device = torch.device("cpu")
+        print(f"Using device: {self.device}")
         self.num_items = num_items
         self.top_k = top_k
         self.model_type = model_type
@@ -23,10 +28,11 @@ class MovieLensClient(NumPyClient):
 
     def fit(self, parameters, config):
         if self.model_type == "mf":
-            num_users = self.num_users
-            model = MatrixFactorization(num_users, self.num_items)
+            model = MatrixFactorization(self.num_users, self.num_items)
+            model = model.to(self.device)  # Move model to device
             train_mf(model, self.trainloader, self.local_epochs, self.lr, self.device)
         else:
+            self.net = self.net.to(self.device)  # Move model to device
             set_weights(self.net, parameters)
             train(self.net, self.trainloader, self.local_epochs, self.lr, self.device, self.num_items)
             visualize_latent_space(self.net, self.testloader, self.device)

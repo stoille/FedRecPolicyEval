@@ -11,6 +11,7 @@ from flwr.server.strategy import FedAvg
 from typing import List, Tuple
 from flwr.server import ServerApp, Driver
 from flwr.server.history import History
+import torch
 
 def aggregate_metrics(metrics: List[Tuple[int, Metrics]]) -> Metrics:
     aggregated = {}
@@ -38,10 +39,14 @@ class CustomFedAvg(FedAvg):
 
 def server_fn(context: Context) -> ServerAppComponents:
     num_rounds = context.run_config["num-server-rounds"]
-    num_items = context.run_config["num-items"] #9724
-    net = VAE(num_items=num_items)
+    num_items = context.run_config["num-items"]
+    
+    # Initialize model on CPU since server doesn't need GPU
+    device = torch.device("cpu")
+    net = VAE(num_items=num_items).to(device)
     ndarrays = get_weights(net)
     parameters = ndarrays_to_parameters(ndarrays)
+    
     strategy = CustomFedAvg(
         initial_parameters=parameters,
     )

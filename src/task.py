@@ -427,8 +427,7 @@ class MatrixFactorization(nn.Module):
         return (self.user_factors(user) * self.item_factors(item)).sum(1)
 
 def train_mf(model, trainloader, epochs, learning_rate, device):
-    model.to(device)
-    # Use SparseAdam instead of Adam
+    model = model.to(device)
     optimizer = torch.optim.SparseAdam(model.parameters(), lr=learning_rate)
     
     for epoch in range(epochs):
@@ -441,18 +440,16 @@ def train_mf(model, trainloader, epochs, learning_rate, device):
             
             optimizer.zero_grad()
             prediction = model(user, item)
-            # Add L2 regularization manually since SparseAdam doesn't support weight_decay
             l2_reg = torch.norm(model.user_factors(user)) + torch.norm(model.item_factors(item))
             loss = F.mse_loss(prediction, rating) + 1e-5 * l2_reg
             loss.backward()
             optimizer.step()
             
             total_loss += loss.item()
-        
-        avg_loss = total_loss / len(trainloader)
-        print(f"Epoch {epoch+1}/{epochs}, Average Loss: {avg_loss:.4f}")
+            
+        print(f"Epoch {epoch+1}/{epochs}, Loss: {total_loss/len(trainloader):.4f}")
     
-    return model
+    return model.cpu()  # Return CPU model for parameter aggregation
 
 def test_mf(model, testloader, device, top_k=10, total_items=None, penalty_value=0.1):
     # Refactored test function to compute aggregated metrics similar to 'test'
