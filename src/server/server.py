@@ -1,4 +1,4 @@
-from flwr.server import ServerApp, Server
+from flwr.server import ServerApp, ServerAppComponents, ServerConfig
 from flwr.common import ndarrays_to_parameters, Context
 from src.models.vae import VAE
 from src.models.matrix_factorization import MatrixFactorization
@@ -7,6 +7,7 @@ from .strategy import CustomFedAvg
 import atexit
 from src.utils.visualization import plot_history
 from typing import Dict, Any
+import atexit
 
 
 def get_initial_parameters(num_items, model_type, context):
@@ -21,22 +22,26 @@ def get_initial_parameters(num_items, model_type, context):
     return ndarrays_to_parameters(ndarrays)
 
 def server_fn(context: Context) -> ServerApp:
-    num_rounds = context.run_config["num-server-rounds"]
-    num_items = context.run_config["num-items"] #9724
-    net = VAE(num_items=num_items)
-    ndarrays = get_weights(net)
-    parameters = ndarrays_to_parameters(ndarrays)
+    # Create strategy
     strategy = CustomFedAvg(
-        initial_parameters=parameters,
+        fraction_fit=1.0,
+        fraction_evaluate=1.0,
+        min_fit_clients=2,
+        min_evaluate_clients=2,
+        min_available_clients=2,
+        initial_parameters=get_initial_parameters(
+            num_items=context.run_config["num-items"],
+            model_type=context.run_config["model-type"],
+            context=context
+        ),
     )
+    num_rounds = context.run_config["num-server-rounds"]
+
     config = ServerConfig(num_rounds=num_rounds)
-    return ServerApp(strategy=strategy, config=config)
+    return ServerAppComponents(strategy=strategy, config=config)
 
-import atexit
 
-def create_server_app() -> ServerApp:
-    # Return ServerApp instance
-    return ServerApp(server_fn=server_fn)
+app = ServerApp(server_fn=server_fn)
 
 def cleanup(strategy):
     """Perform cleanup operations."""

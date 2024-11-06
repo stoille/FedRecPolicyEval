@@ -19,8 +19,8 @@ dependencies = [
 packages = ["src"]
 
 [tool.flwr.app.components]
-serverapp = "src:create_server_app"
-clientapp = "src:create_client_app"
+serverapp = "src.server:app"
+clientapp = "src.client:app"
 
 [tool.flwr.app.config]
 num-server-rounds = 5

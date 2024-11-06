@@ -101,6 +101,4 @@ def client_fn(context: Context) -> NumPyClient:
         num_users=num_users
     )
 
-def create_client_app() -> ClientApp:    
-    # Return ClientApp instance
-    return ClientApp(client_fn=client_fn)
+app = ClientApp(client_fn=client_fn)

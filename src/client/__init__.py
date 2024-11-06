@@ -1,3 +1,3 @@
-from .client import create_client_app
+from .client import app
 
-__all__ = ["create_client_app"]
+__all__ = ["app"]
