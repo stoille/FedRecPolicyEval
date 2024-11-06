@@ -28,7 +28,7 @@ local-epochs = 50
 learning-rate = 0.001
 top-k = 20
 num-items = 3706 # old value for ml-latest-small: 9724
-model-type = "mf"
+model-type = "vae"
 num-users = 2 # for mf; must be same as num-supernodes
 
 [tool.flwr.federations]

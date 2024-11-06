@@ -44,3 +44,11 @@ class VAE(nn.Module):
         mu, logvar = self.encode(x)
         z = self.reparametrize(mu, logvar)
         return self.decode(z), mu, logvar
+
+    def loss_function(self, recon_x, x, mu, logvar):
+        """Calculate VAE loss."""
+        # Reconstruction loss
+        BCE = nn.functional.binary_cross_entropy(recon_x, x, reduction='sum')
+        # KL divergence
+        KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        return BCE + KLD

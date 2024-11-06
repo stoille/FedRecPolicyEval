@@ -1,104 +1,129 @@
-from flwr.client import ClientApp, NumPyClient
-from flwr.common import Context
-import torch
-from src.models.vae import VAE
-from src.models.matrix_factorization import MatrixFactorization
-from src.utils.model_utils import get_weights, set_weights
-from src.utils.metrics import train, test, train_mf, test_mf
-from src.utils.visualization import visualize_latent_space
+from flwr.common import Context, NDArrays
+from flwr.client import NumPyClient, ClientApp, Client
+from typing import Dict, Tuple, Any
+import logging
+import sys
+
+# Configure logging at the top of the file
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger("MovieLensClient")
+
 from src.data.data_loader import load_data
+from src.models.matrix_factorization import MatrixFactorization
+from src.models.vae import VAE
+from src.utils.metrics import train, test, train_mf
+from src.utils.model_utils import set_weights, get_weights
+import torch
 
 class MovieLensClient(NumPyClient):
-    def __init__(self, trainloader, testloader, local_epochs, learning_rate, 
-                 num_items, top_k, model_type, num_users):
+    def __init__(
+        self,
+        trainloader,
+        testloader,
+        model_type: str,
+        num_items: int,
+        num_users: int,
+        learning_rate: float,
+        local_epochs: int,
+        top_k: int,
+        device: str = torch.device("cuda" if torch.cuda.is_available() 
+                                 else "mps" if torch.backends.mps.is_available() 
+                                 else "cpu")
+    ):
         self.trainloader = trainloader
         self.testloader = testloader
-        self.local_epochs = local_epochs
-        self.lr = learning_rate
-        self.device = torch.device("cpu")  # Force CPU for sparse operations
-        self.num_items = num_items
-        self.top_k = top_k
         self.model_type = model_type
-        self.num_users = num_users
+        self.device = device
+        self.local_epochs = local_epochs
+        self.top_k = top_k
         
-        # Initialize appropriate model
-        if self.model_type == "mf":
-            self.model = MatrixFactorization(num_users=num_users, num_items=num_items)
+        # Initialize model based on type
+        if model_type == 'mf':
+            self.model = MatrixFactorization(
+                num_users=num_users,
+                num_items=num_items,
+                embedding_dim=100
+            ).to(device)
         else:
-            self.model = VAE(num_items=num_items)
+            self.model = VAE(num_items=num_items).to(device)
+            
+        # Initialize optimizer
+        self.optimizer = torch.optim.Adam(
+            self.model.parameters(),
+            lr=learning_rate
+        )
 
-    def fit(self, parameters, config):
-        """Train the model on the local dataset."""
-        if self.model_type == "mf":
-            train_mf(
-                self.model, 
-                self.trainloader, 
-                self.local_epochs, 
-                self.lr, 
-                self.device
+    def fit(self, parameters, config) -> Tuple[NDArrays, int, Dict]:
+        """Train model parameters on local data."""
+        set_weights(self.model, parameters)
+        logger.info(f"Starting training with config: {config}")
+        
+        if self.model_type == 'mf':
+            metrics = train_mf(
+                model=self.model,
+                train_loader=self.trainloader,
+                optimizer=self.optimizer,
+                device=self.device,
+                epochs=self.local_epochs
             )
         else:
-            set_weights(self.model, parameters)
-            train(
-                self.model, 
-                self.trainloader, 
-                self.local_epochs, 
-                self.lr, 
-                self.device, 
-                self.num_items
+            metrics = train(
+                model=self.model,
+                train_loader=self.trainloader,
+                optimizer=self.optimizer,
+                device=self.device,
+                epochs=self.local_epochs
             )
-            visualize_latent_space(self.model, self.testloader, self.device)
-
-        return get_weights(self.model), len(self.trainloader.dataset), {}
+        
+        logger.info(f"Training completed with metrics: {metrics}")
+        return get_weights(self.model), len(self.trainloader.dataset), metrics
 
     def evaluate(self, parameters, config):
-        """Evaluate the model on the local test dataset."""
-        if self.model_type == "mf":
-            metrics = test_mf(
-                self.model, 
-                self.testloader, 
-                self.device, 
-                top_k=self.top_k, 
-                total_items=self.num_items
-            )
-        else:
-            set_weights(self.model, parameters)
-            metrics = test(
-                self.model, 
-                self.testloader, 
-                self.device, 
-                self.top_k, 
-                self.num_items
-            )
-
-        return float(metrics["val_loss"]), len(self.testloader.dataset), metrics
+        """Evaluate model parameters on test data."""
+        set_weights(self.model, parameters)
+        logger.info("Starting evaluation")
+        
+        metrics = test(
+            model=self.model,
+            test_loader=self.testloader,
+            device=self.device,
+            top_k=self.top_k
+        )
+        
+        logger.info(f"Evaluation completed with metrics: {metrics}")
+        return float(metrics["loss"]), len(self.testloader.dataset), metrics
 
 """Create and configure client application."""
-def client_fn(context: Context) -> NumPyClient:
-    # Get parameters from context
-    model_type = context.run_config["model-type"]
-    num_items = context.run_config["num-items"]
-    learning_rate = context.run_config["learning-rate"]
-    local_epochs = context.run_config["local-epochs"]
-    top_k = context.run_config["top-k"]
-    num_users = context.run_config["num-users"]
+def client_fn(context: Context) -> Client:
+    """Create a MovieLens client."""
+    config = context.run_config
 
-    # Create data loaders
-    trainloader, testloader = load_data(
-        num_items=num_items,
-        num_users=num_users
+    trainloader, testloader, num_items = load_data(
+        num_users=int(config["num-users"]),
+        model_type=config["model-type"]
     )
 
-    # Create and return client
-    return MovieLensClient(
+    # Create NumPyClient instance
+    numpy_client = MovieLensClient(
         trainloader=trainloader,
         testloader=testloader,
-        local_epochs=local_epochs,
-        learning_rate=learning_rate,
+        model_type=config["model-type"],
         num_items=num_items,
-        top_k=top_k,
-        model_type=model_type,
-        num_users=num_users
+        num_users=int(config["num-users"]),
+        learning_rate=float(config["learning-rate"]),
+        local_epochs=int(config["local-epochs"]),
+        top_k=int(config["top-k"]),
+        device=torch.device("cuda" if torch.cuda.is_available() 
+                                 else "mps" if torch.backends.mps.is_available() 
+                                 else "cpu")
     )
+    
+    # Convert to Client and return
+    return numpy_client.to_client()
 
+# Create the app instance
 app = ClientApp(client_fn=client_fn)

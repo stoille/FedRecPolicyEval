@@ -1,86 +1,50 @@
 import pandas as pd
-import torch
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
+from pathlib import Path
 from .dataset import MovieLensDataset
 
-def load_data(partition_id, num_partitions, mode='vae'):
-    """Load and partition MovieLens dataset."""
-    ratings = load_ratings()
-    ratings = preprocess_ids(ratings)
+def load_data(num_users: int, model_type: str = 'vae') -> tuple[DataLoader, DataLoader, int]:
+    """Load MovieLens data and create train/test dataloaders."""
+    current_dir = Path(__file__).parent
+    data_path = current_dir.parent.parent / "ml-1m" / "ratings.dat"
     
-    num_items = len(ratings['movieId'].unique())
-    num_users = len(ratings['userId'].unique())
-    
-    partition_ratings = create_partition(
-        ratings, partition_id, num_partitions
-    )
-    
-    train_loader, test_loader = create_data_loaders(
-        partition_ratings, num_items, mode
-    )
-    
-    return train_loader, test_loader, num_items, num_users
-
-def load_ratings():
-    """Load ratings from file."""
-    return pd.read_csv(
-        "~/dev/ml-1m/ratings.dat",
+    # Load and preprocess ratings
+    ratings_df = pd.read_csv(
+        data_path,
         sep="::",
-        engine='python',
+        header=None,
         names=["userId", "movieId", "rating", "timestamp"],
-        usecols=["userId", "movieId", "rating"],
+        engine="python"
     )
-
-def preprocess_ids(ratings):
-    """Map user and movie IDs to consecutive indices."""
-    # Map movie IDs
-    unique_movie_ids = ratings['movieId'].unique()
-    movie_id_map = {mid: idx for idx, mid in enumerate(unique_movie_ids)}
-    ratings['movieId'] = ratings['movieId'].map(movie_id_map)
     
-    # Map user IDs
-    unique_user_ids = ratings['userId'].unique()
-    user_id_map = {uid: idx for idx, uid in enumerate(unique_user_ids)}
-    ratings['userId'] = ratings['userId'].map(user_id_map)
+    # Remap user and item IDs to start from 0 and be continuous
+    user_map = {id_: idx for idx, id_ in enumerate(ratings_df['userId'].unique())}
+    item_map = {id_: idx for idx, id_ in enumerate(ratings_df['movieId'].unique())}
     
-    return ratings
-
-def create_partition(ratings, partition_id, num_partitions):
-    """Create a partition of the ratings data."""
-    unique_user_ids = ratings['userId'].unique()
-    total_users = len(unique_user_ids)
-    partition_size = total_users // num_partitions
+    ratings_df['userId'] = ratings_df['userId'].map(user_map)
+    ratings_df['movieId'] = ratings_df['movieId'].map(item_map)
     
-    start_idx = partition_id * partition_size
-    end_idx = (total_users if partition_id == num_partitions - 1 
-              else start_idx + partition_size)
+    num_items = len(item_map)
     
-    partition_user_ids = unique_user_ids[start_idx:end_idx]
-    return ratings[ratings['userId'].isin(partition_user_ids)]
-
-def create_data_loaders(ratings, num_items, mode):
-    """Create train and test data loaders."""
-    dataset = MovieLensDataset(ratings, num_items, mode)
+    # Split data
+    train_df = ratings_df.sample(frac=0.8, random_state=42)
+    test_df = ratings_df.drop(train_df.index)
     
-    # Split dataset
-    train_size = int(0.8 * len(dataset))
-    test_size = len(dataset) - train_size
-    train_dataset, test_dataset = random_split(
-        dataset, 
-        [train_size, test_size],
-        generator=torch.Generator().manual_seed(42)
+    # Create datasets
+    train_dataset = MovieLensDataset(
+        ratings_df=train_df,
+        num_items=num_items,
+        mode=model_type
+    )
+    
+    test_dataset = MovieLensDataset(
+        ratings_df=test_df,
+        num_items=num_items,
+        mode=model_type
     )
     
     # Create dataloaders
-    batch_size = 32 if mode == 'vae' else 1024
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True
-    )
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=batch_size
-    )
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
     
-    return train_loader, test_loader
+    return train_loader, test_loader, num_items

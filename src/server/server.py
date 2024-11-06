@@ -10,35 +10,35 @@ from typing import Dict, Any
 import atexit
 
 
-def get_initial_parameters(num_items, model_type, context):
-    """Get initial model parameters based on model type."""
-    if model_type == "mf":
-        num_users = context.run_config.get("num-users", 0)
-        model = MatrixFactorization(num_users=num_users, num_items=num_items)
-    else:  # default to VAE
-        model = VAE(num_items=num_items)
-    
-    ndarrays = get_weights(model)
-    return ndarrays_to_parameters(ndarrays)
-
 def server_fn(context: Context) -> ServerApp:
-    # Create strategy
+    """Create server instance with initial parameters."""
+    # Get config values
+    num_items = context.run_config["num-items"]
+    num_users = context.run_config["num-users"]
+    model_type = context.run_config["model-type"]
+    num_rounds = context.run_config["num-server-rounds"]
+    
+    # Create initial model
+    model = (
+        MatrixFactorization(num_users=num_users, num_items=num_items)
+        if model_type == "mf"
+        else VAE(num_items=num_items, latent_dim=100)
+    )
+    
+    # Create strategy with initial parameters
     strategy = CustomFedAvg(
         fraction_fit=1.0,
         fraction_evaluate=1.0,
         min_fit_clients=2,
         min_evaluate_clients=2,
         min_available_clients=2,
-        initial_parameters=get_initial_parameters(
-            num_items=context.run_config["num-items"],
-            model_type=context.run_config["model-type"],
-            context=context
-        ),
+        initial_parameters=ndarrays_to_parameters(get_weights(model)),
     )
-    num_rounds = context.run_config["num-server-rounds"]
 
-    config = ServerConfig(num_rounds=num_rounds)
-    return ServerAppComponents(strategy=strategy, config=config)
+    return ServerAppComponents(
+        strategy=strategy,
+        config=ServerConfig(num_rounds=num_rounds)
+    )
 
 
 app = ServerApp(server_fn=server_fn)

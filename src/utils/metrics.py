@@ -2,6 +2,17 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from sklearn.metrics import roc_auc_score
+from src.utils.model_utils import get_recommendations
+import logging
+import sys
+
+# Configure logging at the top of the file
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger("Metrics")
 
 def loss_function(recon_x, x, mu, logvar, epoch=1, num_epochs=1):
     reconstruction_loss = F.binary_cross_entropy(recon_x, x, reduction='mean')
@@ -73,60 +84,101 @@ def calculate_recommendation_metrics(top_k_items, relevant_items, top_k, total_i
         'roc_auc': roc_auc
     }
 
-def train(model, train_loader, optimizer, criterion, device):
-    """Train the model for one epoch."""
+def train_mf(model, train_loader, optimizer, device, epochs):
+    """Train matrix factorization model."""
     model.train()
     total_loss = 0
-    for batch_idx, (data, _) in enumerate(train_loader):
-        data = data.to(device)
-        optimizer.zero_grad()
-        recon_batch, mu, logvar = model(data)
-        loss = criterion(recon_batch, data, mu, logvar)
-        loss.backward()
-        total_loss += loss.item()
-        optimizer.step()
-    return total_loss / len(train_loader.dataset)
+    num_samples = 0
+    criterion = nn.MSELoss()
 
-def test(model, test_loader, criterion, device):
-    """Evaluate the model."""
-    model.eval()
-    test_loss = 0
-    with torch.no_grad():
-        for data, _ in test_loader:
-            data = data.to(device)
-            recon_batch, mu, logvar = model(data)
-            test_loss += criterion(recon_batch, data, mu, logvar).item()
-    test_loss /= len(test_loader.dataset)
-    return test_loss
-
-def train_mf(model, train_loader, optimizer, criterion, device):
-    """Train the matrix factorization model for one epoch."""
-    model.train()
-    total_loss = 0
-    for user_ids, item_ids, ratings in train_loader:
-        user_ids = user_ids.to(device)
-        item_ids = item_ids.to(device)
-        ratings = ratings.to(device)
-        
-        optimizer.zero_grad()
-        predictions = model(user_ids, item_ids)
-        loss = criterion(predictions, ratings)
-        loss.backward()
-        total_loss += loss.item()
-        optimizer.step()
-    return total_loss / len(train_loader.dataset)
-
-def test_mf(model, test_loader, criterion, device):
-    """Evaluate the matrix factorization model."""
-    model.eval()
-    test_loss = 0
-    with torch.no_grad():
-        for user_ids, item_ids, ratings in test_loader:
+    for epoch in range(epochs):
+        epoch_loss = 0
+        for batch_idx, (user_ids, item_ids, ratings) in enumerate(train_loader):
             user_ids = user_ids.to(device)
             item_ids = item_ids.to(device)
             ratings = ratings.to(device)
             
+            optimizer.zero_grad()
             predictions = model(user_ids, item_ids)
-            test_loss += criterion(predictions, ratings).item()
-    test_loss /= len(test_loader.dataset)
-    return test_loss
+            loss = criterion(predictions, ratings)
+            loss.backward()
+            optimizer.step()
+            
+            epoch_loss += loss.item()
+            total_loss += loss.item() * len(ratings)
+            num_samples += len(ratings)
+            
+            if batch_idx % 10 == 0:  # Log every 10 batches
+                logger.info(f"MF Epoch {epoch}/{epochs} | Batch {batch_idx}/{len(train_loader)} | Loss: {loss.item():.4f}")
+        
+        avg_epoch_loss = epoch_loss / len(train_loader)
+        logger.info(f"MF Epoch {epoch}/{epochs} Complete | Avg Loss: {avg_epoch_loss:.4f}")
+
+    avg_loss = total_loss / num_samples
+    logger.info(f"MF Training Complete | Final Avg Loss: {avg_loss:.4f} | Samples: {num_samples}")
+    return {
+        "loss": avg_loss,
+        "num_samples": num_samples
+    }
+
+def train(model, train_loader, optimizer, device, epochs):
+    """Train VAE model."""
+    model.train()
+    total_loss = 0
+    num_samples = 0
+
+    for epoch in range(epochs):
+        epoch_loss = 0
+        for batch_idx, batch in enumerate(train_loader):
+            batch = batch.to(device)
+            optimizer.zero_grad()
+            recon_batch, mu, logvar = model(batch)
+            loss = model.loss_function(recon_batch, batch, mu, logvar)
+            loss.backward()
+            optimizer.step()
+
+            epoch_loss += loss.item()
+            total_loss += loss.item()
+            num_samples += batch.size(0)
+            
+            if batch_idx % 10 == 0:
+                logger.info(f"Epoch {epoch}/{epochs} | Batch {batch_idx}/{len(train_loader)} | Loss: {loss.item():.4f}")
+        
+        avg_epoch_loss = epoch_loss / len(train_loader)
+        logger.info(f"Epoch {epoch}/{epochs} Complete | Avg Loss: {avg_epoch_loss:.4f}")
+
+    avg_loss = total_loss / num_samples
+    logger.info(f"Training Complete | Final Avg Loss: {avg_loss:.4f} | Samples: {num_samples}")
+    return {"loss": avg_loss, "num_samples": num_samples}
+
+def test(model, test_loader, device, top_k):
+    """Test VAE model."""
+    model.eval()
+    total_loss = 0
+    num_samples = 0
+    
+    with torch.no_grad():
+        for batch_idx, (user_ids, item_ids, ratings) in enumerate(test_loader):
+            user_ids = user_ids.to(device)
+            item_ids = item_ids.to(device)
+            ratings = ratings.to(device)
+            
+            if isinstance(model, VAE):
+                recon_batch, mu, logvar = model(ratings)
+                loss = model.loss_function(recon_batch, ratings, mu, logvar)
+            else:
+                predictions = model(user_ids, item_ids)
+                loss = nn.MSELoss()(predictions, ratings)
+            
+            total_loss += loss.item() * len(ratings)
+            num_samples += len(ratings)
+            
+            if batch_idx % 10 == 0:  # Log every 10 batches
+                logger.info(f"Test Batch {batch_idx}/{len(test_loader)} | Loss: {loss.item():.4f}")
+    
+    avg_loss = total_loss / num_samples
+    logger.info(f"Testing Complete | Avg Loss: {avg_loss:.4f} | Samples: {num_samples}")
+    return {
+        "loss": avg_loss,
+        "num_samples": num_samples
+    }
