@@ -15,15 +15,12 @@ dependencies = [
     "torchvision==0.17.1",
 ]
 
-[tool.hatch.build.targets.wheel]
-packages = ["."]
-
-[tool.flwr.app]
-publisher = "mlacay@berkeley.edu"
+[tool.hatch.build]
+packages = ["src"]
 
 [tool.flwr.app.components]
-serverapp = "src.server.server:create_server_app"
-clientapp = "src.client.client:create_client_app"
+serverapp = "src:create_server_app"
+clientapp = "src:create_client_app"
 
 [tool.flwr.app.config]
 num-server-rounds = 5
@@ -39,3 +36,6 @@ default = "local-simulation"
 
 [tool.flwr.federations.local-simulation]
 options.num-supernodes = 2
+
+[tool.flwr.app]
+publisher = "mlacay@berkeley.edu"
