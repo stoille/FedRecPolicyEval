@@ -7,7 +7,7 @@ name = "FedRecPolicyEval"
 version = "1.0.0"
 description = "A Flower / PyTorch package for evaluating recommender system policies."
 readme = "README.md"
-license = "BSD Zero Clause License"
+license = "0BSD"
 dependencies = [
     "flwr[simulation]>=1.10.0",
     "flwr-datasets[vision]>=0.3.0",
@@ -22,8 +22,8 @@ packages = ["."]
 publisher = "mlacay@berkeley.edu"
 
 [tool.flwr.app.components]
-serverapp = "src.server_app:app"
-clientapp = "src.client_app:app"
+serverapp = "src.server.server:create_server_app"
+clientapp = "src.client.client:create_client_app"
 
 [tool.flwr.app.config]
 num-server-rounds = 5
