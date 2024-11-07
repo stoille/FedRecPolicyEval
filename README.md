@@ -4,9 +4,9 @@ dataset: [MovieLens]
 framework: [torch, torchvision]
 ---
 
-# Federated Recommender System Policy Evaluation with PyTorch and Flower
+# Federated Recommender System Performance Benchmarking with PyTorch and Flower
 
-This project evaluates how recommender systems can implement user policy control in a federated way using the Flower framework. You may choose the recommender model to use either Matrix Factorization or Variational Autoencoder (VAE), conditioned on item metadata, user preferences, and user policies. Currently the [MovieLens](https://grouplens.org/datasets/movielens/) dataset is supported. Alternative datasets and implementations of policy-controlled recommender systems will be evaluated in the future.
+This project evaluates the performance of recommender systems that implement collaborative filtering and user policy control in a federated way using the [Flower framework](https://flower.ai/). Recommender models use either Matrix Factorization or Variational Autoencoder (VAE), conditioned on item metadata, user preferences, and user policies. Currently the [MovieLens](https://grouplens.org/datasets/movielens/) dataset is supported. Alternative datasets and implementations of policy-controlled recommender systems will be evaluated in the future.
 
 ## Set up the project
 
@@ -19,7 +19,7 @@ pip install -e .
 ```
 ### Download MovieLens 1m
 
-Download [MovieLens 1m](https://grouplens.org/datasets/movielens/1m/) and extract to ~/dev.
+Download [MovieLens 1m](https://grouplens.org/datasets/movielens/1m/) and extract the `ml-1m` directory to the root project directory alongside the `src` directory.
 
 ## Configure Model & Simulation Settings
 
