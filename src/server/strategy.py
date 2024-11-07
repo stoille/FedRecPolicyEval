@@ -47,6 +47,7 @@ class CustomFedAvg(FedAvg):
         )
         self.history: Dict[int, Dict[str, float]] = {}
         self.model_type = model_type
+        self.current_round = 0
 
     def aggregate_fit(
         self,
@@ -77,23 +78,37 @@ class CustomFedAvg(FedAvg):
         results: List[Tuple[ClientProxy, EvaluateRes]],
         failures: List[BaseException],
     ) -> Tuple[Optional[float], Dict[str, Scalar]]:
-        """Aggregate evaluation metrics across all clients."""
+        """Aggregate evaluation results from clients."""
         if not results:
             return None, {}
 
-        # Aggregate metrics
-        metrics = self.aggregate_metrics([(res.num_examples, res.metrics) 
-                                        for _, res in results])
+        # Call aggregate_evaluate from parent class
+        aggregated, metrics = super().aggregate_evaluate(rnd, results, failures)
+
+        # Get metrics from all clients
+        metrics_list = [(res.num_examples, res.metrics) for _, res in results]
+        aggregated_metrics = {}
+        total_examples = sum([num_examples for num_examples, _ in metrics_list])
+
+        # Aggregate metrics weighted by number of examples
+        for _, m in metrics_list:
+            for key in m:
+                if key not in aggregated_metrics:
+                    aggregated_metrics[key] = 0
+                aggregated_metrics[key] += m[key] * total_examples
+
+        # Normalize metrics
+        for key in aggregated_metrics:
+            aggregated_metrics[key] /= total_examples
+
+        # Store in history
+        self.history[rnd] = aggregated_metrics
         
-        # Store metrics in history
-        self.history[rnd] = metrics
-
-        # Calculate weighted loss average
-        loss_aggregated = weighted_loss_avg(
-            [(res.num_examples, res.loss) for _, res in results]
-        )
-
-        return loss_aggregated, metrics
+        # Log metrics using MetricsLogger
+        from src.utils.metrics import metrics_logger
+        metrics_logger.log_metrics(aggregated_metrics)
+        
+        return aggregated, metrics
 
     def aggregate_mf_parameters(
         self,

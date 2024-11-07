@@ -1,3 +1,3 @@
-from .metrics import train, test, train_mf
+from .metrics import train, test
 
-__all__ = ['train', 'test', 'train_mf'] 
+__all__ = ['train', 'test'] 

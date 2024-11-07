@@ -15,7 +15,7 @@ logger = logging.getLogger("MovieLensClient")
 from src.data.data_loader import load_data
 from src.models.matrix_factorization import MatrixFactorization
 from src.models.vae import VAE
-from src.utils.metrics import train, test, train_mf
+from src.utils.metrics import train, test
 from src.utils.model_utils import set_weights, get_weights
 import torch
 
@@ -37,9 +37,12 @@ class MovieLensClient(NumPyClient):
         self.trainloader = trainloader
         self.testloader = testloader
         self.model_type = model_type
-        self.device = device
+        self.num_items = num_items
+        self.num_users = num_users
+        self.learning_rate = learning_rate
         self.local_epochs = local_epochs
         self.top_k = top_k
+        self.device = device
         
         # Initialize model based on type
         if model_type == 'mf':
@@ -62,22 +65,14 @@ class MovieLensClient(NumPyClient):
         set_weights(self.model, parameters)
         logger.info(f"Starting training with config: {config}")
         
-        if self.model_type == 'mf':
-            metrics = train_mf(
-                model=self.model,
-                train_loader=self.trainloader,
-                optimizer=self.optimizer,
-                device=self.device,
-                epochs=self.local_epochs
-            )
-        else:
-            metrics = train(
-                model=self.model,
-                train_loader=self.trainloader,
-                optimizer=self.optimizer,
-                device=self.device,
-                epochs=self.local_epochs
-            )
+        metrics = train(
+            model=self.model,
+            train_loader=self.trainloader,
+            optimizer=self.optimizer,
+            device=self.device,
+            epochs=self.local_epochs,
+            model_type=self.model_type
+        )
         
         logger.info(f"Training completed with metrics: {metrics}")
         return get_weights(self.model), len(self.trainloader.dataset), metrics
@@ -91,11 +86,13 @@ class MovieLensClient(NumPyClient):
             model=self.model,
             test_loader=self.testloader,
             device=self.device,
-            top_k=self.top_k
+            top_k=self.top_k,
+            model_type=self.model_type,
+            num_items=self.num_items
         )
         
         logger.info(f"Evaluation completed with metrics: {metrics}")
-        return float(metrics["loss"]), len(self.testloader.dataset), metrics
+        return float(metrics["val_loss"]), len(self.testloader.dataset), metrics
 
 """Create and configure client application."""
 def client_fn(context: Context) -> Client:
