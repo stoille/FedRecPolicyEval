@@ -5,11 +5,9 @@ from sklearn.metrics import roc_auc_score
 from src.utils.model_utils import get_recommendations
 import logging
 import sys
-import matplotlib.pyplot as plt
-from typing import Dict, List
-import os
-import json
+from typing import Dict
 import atexit
+from src.utils.visualization import plot_metrics_history
 
 # Configure logging at the top of the file
 logging.basicConfig(
@@ -41,7 +39,6 @@ class MetricsLogger:
             
         self.history['rounds'].append(self.current_round)
         
-        # Map metrics to history keys
         metric_mapping = {
             'val_loss': 'val_loss',
             'loss': 'train_loss',
@@ -53,83 +50,15 @@ class MetricsLogger:
             'roc_auc': 'roc_auc'
         }
         
-        # Log each metric
         for metric_key, history_key in metric_mapping.items():
             if metric_key in metrics:
                 self.history[history_key].append(metrics[metric_key])
             else:
-                # Use previous value or 0 if no history
                 prev_value = self.history[history_key][-1] if self.history[history_key] else 0
                 self.history[history_key].append(prev_value)
         
         self.current_round += 1
         logger.info(f"Logged metrics for round {self.current_round}: {metrics}")
-
-    def plot_metrics(self, save_path: str = "metrics_plots.png"):
-        if not self.history['rounds']:  # Check if we have data
-            logger.warning("No metrics to plot")
-            return
-            
-        fig, axs = plt.subplots(2, 3, figsize=(18, 10))
-        
-        # Loss plot
-        axs[0, 0].plot(self.history['rounds'], self.history['train_loss'], label='Training Loss')
-        axs[0, 0].plot(self.history['rounds'], self.history['val_loss'], label='Validation Loss')
-        axs[0, 0].set_xlabel('Rounds')
-        axs[0, 0].set_ylabel('Loss')
-        axs[0, 0].set_title('Training and Validation Loss')
-        axs[0, 0].legend()
-        axs[0, 0].grid(True)
-
-        # RMSE plot
-        axs[0, 1].plot(self.history['rounds'], self.history['rmse'], label='RMSE', color='orange')
-        axs[0, 1].set_xlabel('Rounds')
-        axs[0, 1].set_ylabel('RMSE')
-        axs[0, 1].set_title('Root Mean Squared Error')
-        axs[0, 1].legend()
-        axs[0, 1].grid(True)
-
-        # Precision/Recall plot
-        axs[0, 2].plot(self.history['rounds'], self.history['precision_at_k'], label='Precision@K')
-        axs[0, 2].plot(self.history['rounds'], self.history['recall_at_k'], label='Recall@K')
-        axs[0, 2].set_xlabel('Rounds')
-        axs[0, 2].set_ylabel('Score')
-        axs[0, 2].set_title('Precision@K and Recall@K')
-        axs[0, 2].legend()
-        axs[0, 2].grid(True)
-
-        # NDCG plot
-        axs[1, 0].plot(self.history['rounds'], self.history['ndcg_at_k'], label='NDCG@K', color='green')
-        axs[1, 0].set_xlabel('Rounds')
-        axs[1, 0].set_ylabel('NDCG')
-        axs[1, 0].set_title('Normalized Discounted Cumulative Gain')
-        axs[1, 0].legend()
-        axs[1, 0].grid(True)
-
-        # ROC AUC plot
-        axs[1, 1].plot(self.history['rounds'], self.history['roc_auc'], label='ROC AUC', color='blue')
-        axs[1, 1].set_xlabel('Rounds')
-        axs[1, 1].set_ylabel('ROC AUC')
-        axs[1, 1].set_title('ROC AUC')
-        axs[1, 1].legend()
-        axs[1, 1].grid(True)
-
-        # Coverage plot
-        axs[1, 2].plot(self.history['rounds'], self.history['coverage'], label='Coverage', color='brown')
-        axs[1, 2].set_xlabel('Rounds')
-        axs[1, 2].set_ylabel('Coverage')
-        axs[1, 2].set_title('Coverage')
-        axs[1, 2].legend()
-        axs[1, 2].grid(True)
-
-        plt.tight_layout()
-        plt.savefig(save_path)
-        plt.close()
-
-        # Save history to JSON
-        with open('history.json', 'w') as f:
-            json.dump(self.history, f)
-        logger.info(f"Saved metrics plot to {save_path} and history to history.json")
 
 # Create global metrics logger
 metrics_logger = MetricsLogger()
@@ -137,7 +66,7 @@ metrics_logger = MetricsLogger()
 # Register cleanup function
 def cleanup():
     logger.info("Saving metrics plots and history...")
-    metrics_logger.plot_metrics()
+    plot_metrics_history(metrics_logger.history)
 
 atexit.register(cleanup)
 

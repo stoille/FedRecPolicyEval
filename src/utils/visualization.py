@@ -1,6 +1,78 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.manifold import TSNE
+import json
+import logging
+import torch
+
+logger = logging.getLogger("Visualization")
+
+def plot_metrics_history(history: dict, save_path: str = "metrics_plots.png"):
+    """Plot all metrics from history."""
+    if not history['rounds']:
+        logger.warning("No metrics to plot")
+        return
+        
+    fig, axs = plt.subplots(2, 3, figsize=(18, 10))
+    
+    # Loss plot
+    axs[0, 0].plot(history['rounds'], history['train_loss'], label='Training Loss')
+    axs[0, 0].plot(history['rounds'], history['val_loss'], label='Validation Loss')
+    axs[0, 0].set_xlabel('Rounds')
+    axs[0, 0].set_ylabel('Loss')
+    axs[0, 0].set_title('Training and Validation Loss')
+    axs[0, 0].legend()
+    axs[0, 0].grid(True)
+
+    # RMSE plot
+    axs[0, 1].plot(history['rounds'], history['rmse'], label='RMSE', color='orange')
+    axs[0, 1].set_xlabel('Rounds')
+    axs[0, 1].set_ylabel('RMSE')
+    axs[0, 1].set_title('Root Mean Squared Error')
+    axs[0, 1].legend()
+    axs[0, 1].grid(True)
+
+    # Precision/Recall plot
+    axs[0, 2].plot(history['rounds'], history['precision_at_k'], label='Precision@K')
+    axs[0, 2].plot(history['rounds'], history['recall_at_k'], label='Recall@K')
+    axs[0, 2].set_xlabel('Rounds')
+    axs[0, 2].set_ylabel('Score')
+    axs[0, 2].set_title('Precision@K and Recall@K')
+    axs[0, 2].legend()
+    axs[0, 2].grid(True)
+
+    # NDCG plot
+    axs[1, 0].plot(history['rounds'], history['ndcg_at_k'], label='NDCG@K', color='green')
+    axs[1, 0].set_xlabel('Rounds')
+    axs[1, 0].set_ylabel('NDCG')
+    axs[1, 0].set_title('Normalized Discounted Cumulative Gain')
+    axs[1, 0].legend()
+    axs[1, 0].grid(True)
+
+    # ROC AUC plot
+    axs[1, 1].plot(history['rounds'], history['roc_auc'], label='ROC AUC', color='blue')
+    axs[1, 1].set_xlabel('Rounds')
+    axs[1, 1].set_ylabel('ROC AUC')
+    axs[1, 1].set_title('ROC AUC')
+    axs[1, 1].legend()
+    axs[1, 1].grid(True)
+
+    # Coverage plot
+    axs[1, 2].plot(history['rounds'], history['coverage'], label='Coverage', color='brown')
+    axs[1, 2].set_xlabel('Rounds')
+    axs[1, 2].set_ylabel('Coverage')
+    axs[1, 2].set_title('Coverage')
+    axs[1, 2].legend()
+    axs[1, 2].grid(True)
+
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
+
+    # Save history to JSON
+    with open('history.json', 'w') as f:
+        json.dump(history, f)
+    logger.info(f"Saved metrics plot to {save_path} and history to history.json")
 
 def visualize_latent_space(model, dataloader, device):
     if not hasattr(model, 'encode'):
@@ -36,35 +108,3 @@ def plot_tsne_visualization(latent_vectors, labels):
     plt.ylabel('Dimension 2')
     plt.savefig('latent_space_visualization.png')
     plt.close()
-
-def plot_history(history):
-    rounds = sorted(history.keys())
-    metrics = {
-        'losses': ('train_loss', 'val_loss'),
-        'error': ('rmse',),
-        'ranking': ('precision_at_k', 'recall_at_k'),
-        'ndcg': ('ndcg_at_k',),
-        'roc': ('roc_auc',),
-        'coverage': ('coverage',)
-    }
-
-    fig, axs = plt.subplots(2, 3, figsize=(18, 10))
-    plot_metrics(axs, rounds, history, metrics)
-    
-    plt.tight_layout()
-    plt.savefig('metrics_plots.png')
-    plt.close()
-
-def plot_metrics(axs, rounds, history, metrics):
-    for (i, j), (title, metric_keys) in zip(
-        [(0,0), (0,1), (0,2), (1,0), (1,1), (1,2)],
-        metrics.items()
-    ):
-        ax = axs[i, j]
-        for key in metric_keys:
-            values = [history[r].get(key) for r in rounds]
-            ax.plot(rounds, values, label=key)
-        ax.set_xlabel('Rounds')
-        ax.set_ylabel(title.capitalize())
-        ax.set_title(f'{title.capitalize()} Metrics')
-        ax.legend()
