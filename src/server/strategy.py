@@ -45,8 +45,9 @@ class CustomFedAvg(FedAvg):
             fit_metrics_aggregation_fn=fit_metrics_aggregation_fn,
             evaluate_metrics_aggregation_fn=evaluate_metrics_aggregation_fn,
         )
-        self.history: Dict[int, Dict[str, float]] = {}
+        self.history = {'train_loss': []}
         self.model_type = model_type
+        self.current_round = 0
 
     def aggregate_fit(
         self,
@@ -69,6 +70,13 @@ class CustomFedAvg(FedAvg):
                 rnd, results, failures
             )
 
+        # Collect train_loss from client metrics
+        train_losses = [fit_res.metrics['train_loss'] for _, fit_res in results if 'train_loss' in fit_res.metrics]
+        avg_train_loss = sum(train_losses) / len(train_losses) if train_losses else 0.0
+
+        # Record the average train_loss
+        self.history['train_loss'].append(avg_train_loss)
+
         return parameters_aggregated, metrics_aggregated
 
     def aggregate_evaluate(
@@ -77,23 +85,37 @@ class CustomFedAvg(FedAvg):
         results: List[Tuple[ClientProxy, EvaluateRes]],
         failures: List[BaseException],
     ) -> Tuple[Optional[float], Dict[str, Scalar]]:
-        """Aggregate evaluation metrics across all clients."""
+        """Aggregate evaluation results from clients."""
         if not results:
             return None, {}
 
-        # Aggregate metrics
-        metrics = self.aggregate_metrics([(res.num_examples, res.metrics) 
-                                        for _, res in results])
+        # Call aggregate_evaluate from parent class
+        aggregated, metrics = super().aggregate_evaluate(rnd, results, failures)
+
+        # Get metrics from all clients
+        metrics_list = [(res.num_examples, res.metrics) for _, res in results]
+        aggregated_metrics = {}
+        total_examples = sum([num_examples for num_examples, _ in metrics_list])
+
+        # Aggregate metrics weighted by number of examples
+        for _, m in metrics_list:
+            for key in m:
+                if key not in aggregated_metrics:
+                    aggregated_metrics[key] = 0
+                aggregated_metrics[key] += m[key] * total_examples
+
+        # Normalize metrics
+        for key in aggregated_metrics:
+            aggregated_metrics[key] /= total_examples
+
+        # Store in history
+        self.history[rnd] = aggregated_metrics
         
-        # Store metrics in history
-        self.history[rnd] = metrics
-
-        # Calculate weighted loss average
-        loss_aggregated = weighted_loss_avg(
-            [(res.num_examples, res.loss) for _, res in results]
-        )
-
-        return loss_aggregated, metrics
+        # Log metrics using MetricsLogger
+        from src.utils.metrics import metrics_logger
+        metrics_logger.log_metrics(aggregated_metrics)
+        
+        return aggregated, metrics
 
     def aggregate_mf_parameters(
         self,

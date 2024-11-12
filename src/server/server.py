@@ -5,7 +5,7 @@ from src.models.matrix_factorization import MatrixFactorization
 from src.utils.model_utils import get_weights
 from .strategy import CustomFedAvg
 import atexit
-from src.utils.visualization import plot_history
+from src.utils.visualization import plot_metrics_history
 from typing import Dict, Any
 import atexit
 
@@ -47,4 +47,4 @@ def cleanup(strategy):
     """Perform cleanup operations."""
     print("Performing cleanup operations")
     if hasattr(strategy, 'history'):
-        plot_history(strategy.history)
+        plot_metrics_history(strategy.history)
