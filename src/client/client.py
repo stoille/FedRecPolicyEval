@@ -92,7 +92,7 @@ class MovieLensClient(NumPyClient):
         )
         
         logger.info(f"Evaluation completed with metrics: {metrics}")
-        return float(metrics["val_loss"]), len(self.testloader.dataset), metrics
+        return float(metrics["test_loss"]), len(self.testloader.dataset), metrics
 
 """Create and configure client application."""
 def client_fn(context: Context) -> Client:

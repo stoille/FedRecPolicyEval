@@ -45,7 +45,7 @@ class CustomFedAvg(FedAvg):
             fit_metrics_aggregation_fn=fit_metrics_aggregation_fn,
             evaluate_metrics_aggregation_fn=evaluate_metrics_aggregation_fn,
         )
-        self.history: Dict[int, Dict[str, float]] = {}
+        self.history = {'train_loss': []}
         self.model_type = model_type
         self.current_round = 0
 
@@ -69,6 +69,13 @@ class CustomFedAvg(FedAvg):
             parameters_aggregated, metrics_aggregated = super().aggregate_fit(
                 rnd, results, failures
             )
+
+        # Collect train_loss from client metrics
+        train_losses = [fit_res.metrics['train_loss'] for _, fit_res in results if 'train_loss' in fit_res.metrics]
+        avg_train_loss = sum(train_losses) / len(train_losses) if train_losses else 0.0
+
+        # Record the average train_loss
+        self.history['train_loss'].append(avg_train_loss)
 
         return parameters_aggregated, metrics_aggregated
 

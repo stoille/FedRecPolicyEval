@@ -7,25 +7,30 @@ import torch
 
 logger = logging.getLogger("Visualization")
 
-def plot_metrics_history(history: dict, save_path: str = "metrics_plots.png"):
-    """Plot all metrics from history."""
-    if not history['rounds']:
+def plot_metrics_history(train_history: dict, test_history: dict, save_path: str = "metrics_plots.png"):
+    """Plot all metrics from both train and test histories."""
+    if not train_history.get('rounds') and not test_history.get('rounds'):
         logger.warning("No metrics to plot")
         return
-        
+
     fig, axs = plt.subplots(2, 3, figsize=(18, 10))
-    
+
     # Loss plot
-    axs[0, 0].plot(history['rounds'], history['train_loss'], label='Training Loss')
-    axs[0, 0].plot(history['rounds'], history['val_loss'], label='Validation Loss')
+    if train_history.get('rounds'):
+        axs[0, 0].plot(train_history['rounds'], train_history['train_loss'], label='Training Loss')
+    if test_history.get('rounds'):
+        axs[0, 0].plot(test_history['rounds'], test_history['test_loss'], label='Test Loss')
     axs[0, 0].set_xlabel('Rounds')
     axs[0, 0].set_ylabel('Loss')
-    axs[0, 0].set_title('Training and Validation Loss')
+    axs[0, 0].set_title('Loss')
     axs[0, 0].legend()
     axs[0, 0].grid(True)
 
     # RMSE plot
-    axs[0, 1].plot(history['rounds'], history['rmse'], label='RMSE', color='orange')
+    if train_history.get('rounds'):
+        axs[0, 1].plot(train_history['rounds'], train_history['train_rmse'], label='Training RMSE', color='orange')
+    if test_history.get('rounds'):
+        axs[0, 1].plot(test_history['rounds'], test_history['test_rmse'], label='Test RMSE', color='red')
     axs[0, 1].set_xlabel('Rounds')
     axs[0, 1].set_ylabel('RMSE')
     axs[0, 1].set_title('Root Mean Squared Error')
@@ -33,8 +38,8 @@ def plot_metrics_history(history: dict, save_path: str = "metrics_plots.png"):
     axs[0, 1].grid(True)
 
     # Precision/Recall plot
-    axs[0, 2].plot(history['rounds'], history['precision_at_k'], label='Precision@K')
-    axs[0, 2].plot(history['rounds'], history['recall_at_k'], label='Recall@K')
+    axs[0, 2].plot(test_history['rounds'], test_history['precision_at_k'], label='Precision@K')
+    axs[0, 2].plot(test_history['rounds'], test_history['recall_at_k'], label='Recall@K')
     axs[0, 2].set_xlabel('Rounds')
     axs[0, 2].set_ylabel('Score')
     axs[0, 2].set_title('Precision@K and Recall@K')
@@ -42,7 +47,7 @@ def plot_metrics_history(history: dict, save_path: str = "metrics_plots.png"):
     axs[0, 2].grid(True)
 
     # NDCG plot
-    axs[1, 0].plot(history['rounds'], history['ndcg_at_k'], label='NDCG@K', color='green')
+    axs[1, 0].plot(test_history['rounds'], test_history['ndcg_at_k'], label='NDCG@K', color='lime')
     axs[1, 0].set_xlabel('Rounds')
     axs[1, 0].set_ylabel('NDCG')
     axs[1, 0].set_title('Normalized Discounted Cumulative Gain')
@@ -50,7 +55,7 @@ def plot_metrics_history(history: dict, save_path: str = "metrics_plots.png"):
     axs[1, 0].grid(True)
 
     # ROC AUC plot
-    axs[1, 1].plot(history['rounds'], history['roc_auc'], label='ROC AUC', color='blue')
+    axs[1, 1].plot(test_history['rounds'], test_history['roc_auc'], label='ROC AUC', color='navy')
     axs[1, 1].set_xlabel('Rounds')
     axs[1, 1].set_ylabel('ROC AUC')
     axs[1, 1].set_title('ROC AUC')
@@ -58,7 +63,7 @@ def plot_metrics_history(history: dict, save_path: str = "metrics_plots.png"):
     axs[1, 1].grid(True)
 
     # Coverage plot
-    axs[1, 2].plot(history['rounds'], history['coverage'], label='Coverage', color='brown')
+    axs[1, 2].plot(test_history['rounds'], test_history['coverage'], label='Coverage', color='sienna')
     axs[1, 2].set_xlabel('Rounds')
     axs[1, 2].set_ylabel('Coverage')
     axs[1, 2].set_title('Coverage')
@@ -69,10 +74,25 @@ def plot_metrics_history(history: dict, save_path: str = "metrics_plots.png"):
     plt.savefig(save_path)
     plt.close()
 
-    # Save history to JSON
-    with open('history.json', 'w') as f:
-        json.dump(history, f)
-    logger.info(f"Saved metrics plot to {save_path} and history to history.json")
+    logger.info(f"Saved metrics plot to {save_path}")
+
+def plot_metrics_from_files(train_history_file='train_history.json', test_history_file='test_history.json', save_path='metrics_plots.png'):
+    """Load histories from JSON files and plot metrics."""
+    try:
+        with open(train_history_file, 'r') as f:
+            train_history = json.load(f)
+    except FileNotFoundError:
+        logger.warning(f"{train_history_file} not found.")
+        train_history = {'rounds': []}
+
+    try:
+        with open(test_history_file, 'r') as f:
+            test_history = json.load(f)
+    except FileNotFoundError:
+        logger.warning(f"{test_history_file} not found.")
+        test_history = {'rounds': []}
+
+    plot_metrics_history(train_history, test_history, save_path)
 
 def visualize_latent_space(model, dataloader, device):
     if not hasattr(model, 'encode'):

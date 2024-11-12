@@ -34,15 +34,28 @@ class TestMetrics:
         assert metrics['roc_auc'] is not None
 
     def test_metrics_logger(self, metrics_logger):
+        # Log training metrics
+        train_metrics = {
+            'train_loss': 0.5,
+            'train_rmse': 0.3
+        }
+        metrics_logger.log_metrics(train_metrics, is_training=True)
+        
+        # Log test metrics
         test_metrics = {
-            'loss': 0.5,
             'precision_at_k': 0.7,
             'recall_at_k': 0.6,
             'ndcg_at_k': 0.8
         }
+        metrics_logger.log_metrics(test_metrics, is_training=False)
         
-        metrics_logger.log_metrics(test_metrics, is_training=True)
+        # Assert training metrics
+        assert len(metrics_logger.train_history['rounds']) == 1
+        assert metrics_logger.train_history['train_loss'][0] == 0.5
+        assert metrics_logger.train_history['train_rmse'][0] == 0.3
         
-        assert len(metrics_logger.history['train_loss']) == 1
-        assert metrics_logger.history['train_loss'][0] == 0.5
-        assert metrics_logger.history['precision_at_k'][0] == 0.7
+        # Assert test metrics
+        assert len(metrics_logger.test_history['rounds']) == 1
+        assert metrics_logger.test_history['precision_at_k'][0] == 0.7
+        assert metrics_logger.test_history['recall_at_k'][0] == 0.6
+        assert metrics_logger.test_history['ndcg_at_k'][0] == 0.8

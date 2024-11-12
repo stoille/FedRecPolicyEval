@@ -7,7 +7,7 @@ import logging
 import sys
 from typing import Dict
 import atexit
-from src.utils.visualization import plot_metrics_history
+from src.utils.visualization import plot_metrics_history, plot_metrics_from_files
 
 # Configure logging at the top of the file
 logging.basicConfig(
@@ -19,10 +19,15 @@ logger = logging.getLogger("Metrics")
 
 class MetricsLogger:
     def __init__(self):
-        self.history = {
+        # Initialize separate histories for training and validation
+        self.train_history = {
             'train_loss': [],
-            'val_loss': [],
-            'rmse': [],
+            'train_rmse': [],
+            'rounds': []
+        }
+        self.test_history = {
+            'test_loss': [],
+            'test_rmse': [],
             'precision_at_k': [],
             'recall_at_k': [],
             'ndcg_at_k': [],
@@ -31,34 +36,38 @@ class MetricsLogger:
             'rounds': []
         }
         self.current_round = 0
-    
-    def log_metrics(self, metrics: Dict[str, float]):
-        """Log metrics for current round."""
+
+    def log_metrics(self, metrics: Dict[str, float], is_training: bool = False):
+        """Log metrics for the current round."""
         if not metrics:
             return
-            
-        self.history['rounds'].append(self.current_round)
-        
-        metric_mapping = {
-            'val_loss': 'val_loss',
-            'loss': 'train_loss',
-            'rmse': 'rmse',
-            'precision_at_k': 'precision_at_k',
-            'recall_at_k': 'recall_at_k',
-            'ndcg_at_k': 'ndcg_at_k',
-            'coverage': 'coverage',
-            'roc_auc': 'roc_auc'
-        }
-        
-        for metric_key, history_key in metric_mapping.items():
-            if metric_key in metrics:
-                self.history[history_key].append(metrics[metric_key])
-            else:
-                prev_value = self.history[history_key][-1] if self.history[history_key] else 0
-                self.history[history_key].append(prev_value)
-        
+
+        # Determine which history to log to
+        if is_training:
+            history = self.train_history
+            phase = 'training'
+        else:
+            history = self.test_history
+            phase = 'test'
+
+        history['rounds'].append(self.current_round)
+
+        # Log metrics that exist in the input metrics dict
+        for key in metrics:
+            if key in history:
+                history[key].append(metrics[key])
+
         self.current_round += 1
-        logger.info(f"Logged metrics for round {self.current_round}: {metrics}")
+        logger.info(f"Logged {phase} metrics for round {self.current_round}: {metrics}")
+        
+        # Save history to JSON file
+        import json
+        if is_training:
+            with open('train_history.json', 'w') as f:
+                json.dump(self.train_history, f)
+        else:
+            with open('test_history.json', 'w') as f:
+                json.dump(self.test_history, f)
 
 # Create global metrics logger
 metrics_logger = MetricsLogger()
@@ -66,7 +75,14 @@ metrics_logger = MetricsLogger()
 # Register cleanup function
 def cleanup():
     logger.info("Saving metrics plots and history...")
-    plot_metrics_history(metrics_logger.history)
+    # Save histories to separate JSON files
+    import json
+    #with open('train_history.json', 'w') as f:
+    #    json.dump(metrics_logger.train_history, f)
+    with open('test_history.json', 'w') as f:
+        json.dump(metrics_logger.test_history, f)
+    # Plot metrics history
+    plot_metrics_from_files('train_history.json', 'test_history.json')
 
 atexit.register(cleanup)
 
@@ -142,19 +158,14 @@ def calculate_recommendation_metrics(top_k_items, relevant_items, top_k, total_i
 def train(model, train_loader, optimizer, device, epochs, model_type: str):
     """Train model."""
     model.train()
-    epoch_metrics = {
-        'train_loss': 0,
-        'val_loss': 0,
-        'rmse': 0,
-        'precision_at_k': 0,
-        'recall_at_k': 0,
-        'ndcg_at_k': 0,
-        'coverage': 0,
-        'roc_auc': 0,
-    }
-    num_samples = 0
-
     for epoch in range(epochs):
+        epoch_metrics = {
+            'train_loss': 0.0,
+            'train_rmse': 0.0,
+            # Initialize other metrics if needed
+        }
+        num_batches = 0
+        
         for batch_idx, batch in enumerate(train_loader):
             if model_type == 'vae':
                 ratings = batch.to(device)
@@ -162,7 +173,7 @@ def train(model, train_loader, optimizer, device, epochs, model_type: str):
                 recon_batch, mu, logvar = model(ratings)
                 loss = model.loss_function(recon_batch, ratings, mu, logvar)
                 # Calculate RMSE for VAE
-                epoch_metrics['rmse'] += compute_rmse(recon_batch, ratings) * len(ratings)
+                rmse = compute_rmse(recon_batch, ratings)
             else:  # model_type == 'mf'
                 user_ids, item_ids, ratings = batch
                 user_ids = user_ids.to(device)
@@ -170,34 +181,37 @@ def train(model, train_loader, optimizer, device, epochs, model_type: str):
                 ratings = ratings.to(device)
                 optimizer.zero_grad()
                 predictions = model(user_ids, item_ids)
-                loss = nn.MSELoss()(predictions, ratings)
+                loss = torch.nn.MSELoss()(predictions, ratings)
                 # Calculate RMSE for MF
-                epoch_metrics['rmse'] += compute_rmse(predictions, ratings) * len(ratings)
+                rmse = compute_rmse(predictions, ratings)
             
             loss.backward()
             optimizer.step()
             
-            epoch_metrics['train_loss'] += loss.item() * len(ratings)
-            num_samples += len(ratings)
+            epoch_metrics['train_loss'] += loss.item()
+            epoch_metrics['train_rmse'] += rmse
+            num_batches += 1
             
             if batch_idx % 10 == 0:
-                logger.info(f"Epoch {epoch}/{epochs} | Batch {batch_idx}/{len(train_loader)} | Loss: {loss.item():.4f}")
+                logger.info(f"Epoch {epoch+1}/{epochs} | Batch {batch_idx}/{len(train_loader)} | Loss: {loss.item():.4f}")
 
-    # Average metrics
-    for k in epoch_metrics:
-        if num_samples > 0:
-            epoch_metrics[k] /= num_samples
+        # Average metrics for this epoch
+        if num_batches > 0:
+            epoch_metrics['train_loss'] /= num_batches
+            epoch_metrics['train_rmse'] /= num_batches
 
-    logger.info(f"Training Complete | Metrics: {epoch_metrics}")
+        # Log metrics for this epoch
+        metrics_logger.log_metrics(epoch_metrics, is_training=True)
+        logger.info(f"Epoch {epoch+1}/{epochs} Complete | Metrics: {epoch_metrics}")
+    
     return epoch_metrics
 
 def test(model, test_loader, device, top_k, model_type: str, num_items: int):
     """Test model."""
     model.eval()
     metrics = {
-        'val_loss': 0,
-        'loss': 0,
-        'rmse': 0,
+        'test_loss': 0,
+        'test_rmse': 0,
         'precision_at_k': 0,
         'recall_at_k': 0,
         'ndcg_at_k': 0,
@@ -214,7 +228,7 @@ def test(model, test_loader, device, top_k, model_type: str, num_items: int):
                 loss = model.loss_function(recon_batch, ratings, mu, logvar)
                 batch_metrics = compute_metrics(model, ratings, top_k, num_items, device)
                 # Calculate RMSE for VAE
-                metrics['rmse'] += compute_rmse(recon_batch, ratings) * len(ratings)
+                metrics['test_rmse'] += compute_rmse(recon_batch, ratings) * len(ratings)
             else:  # model_type == 'mf'
                 user_ids, item_ids, ratings = batch
                 user_ids = user_ids.to(device)
@@ -224,14 +238,13 @@ def test(model, test_loader, device, top_k, model_type: str, num_items: int):
                 loss = nn.MSELoss()(predictions, ratings)
                 batch_metrics = compute_metrics(model, ratings, top_k, num_items, device)
                 # Calculate RMSE for MF
-                metrics['rmse'] += compute_rmse(predictions, ratings) * len(ratings)
+                metrics['test_rmse'] += compute_rmse(predictions, ratings) * len(ratings)
             
-            val_loss = loss.item() * len(ratings)
-            metrics['val_loss'] += val_loss
-            metrics['loss'] += val_loss
+            test_loss = loss.item() * len(ratings)
+            metrics['test_loss'] += test_loss
             
             for k, v in batch_metrics.items():
-                if v is not None and k != 'rmse':  # Skip RMSE from batch_metrics
+                if v is not None and k != 'test_rmse':  # Skip RMSE from batch_metrics
                     metrics[k] += v * len(ratings)
             
             num_samples += len(ratings)
@@ -244,5 +257,7 @@ def test(model, test_loader, device, top_k, model_type: str, num_items: int):
         if num_samples > 0:
             metrics[k] /= num_samples
     
+    # Log with is_training=False
+    metrics_logger.log_metrics(metrics, is_training=False)
     logger.info(f"Testing Complete | Metrics: {metrics}")
     return metrics
