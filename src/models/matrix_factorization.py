@@ -11,4 +11,10 @@ class MatrixFactorization(nn.Module):
         nn.init.normal_(self.item_factors.weight, std=0.01)
 
     def forward(self, user, item):
+        # Add dimension checks
+        if torch.max(user) >= self.user_factors.num_embeddings:
+            raise ValueError(f"User ID {torch.max(user).item()} out of bounds. Max allowed: {self.user_factors.num_embeddings-1}")
+        if torch.max(item) >= self.item_factors.num_embeddings:
+            raise ValueError(f"Item ID {torch.max(item).item()} out of bounds. Max allowed: {self.item_factors.num_embeddings-1}")
+        
         return (self.user_factors(user) * self.item_factors(item)).sum(1)

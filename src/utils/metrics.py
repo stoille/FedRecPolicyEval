@@ -235,7 +235,7 @@ def test(model, test_loader, device, top_k, model_type: str, num_items: int):
                 item_ids = item_ids.to(device)
                 ratings = ratings.to(device)
                 predictions = model(user_ids, item_ids)
-                loss = nn.MSELoss()(predictions, ratings)
+                loss = torch.nn.MSELoss()(predictions, ratings)
                 batch_metrics = compute_metrics(model, ratings, top_k, num_items, device)
                 # Calculate RMSE for MF
                 metrics['test_rmse'] += compute_rmse(predictions, ratings) * len(ratings)

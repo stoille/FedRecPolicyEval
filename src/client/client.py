@@ -25,45 +25,58 @@ class MovieLensClient(NumPyClient):
         trainloader,
         testloader,
         model_type: str,
-        num_items: int,
         num_users: int,
+        num_items: int,
         learning_rate: float,
         local_epochs: int,
         top_k: int,
-        device: str = torch.device("cuda" if torch.cuda.is_available() 
-                                 else "mps" if torch.backends.mps.is_available() 
-                                 else "cpu")
+        device: str,
     ):
         self.trainloader = trainloader
         self.testloader = testloader
         self.model_type = model_type
-        self.num_items = num_items
         self.num_users = num_users
+        self.num_items = num_items
         self.learning_rate = learning_rate
         self.local_epochs = local_epochs
         self.top_k = top_k
         self.device = device
         
-        # Initialize model based on type
+        # Initialize model with provided dimensions
         if model_type == 'mf':
             self.model = MatrixFactorization(
-                num_users=num_users,
-                num_items=num_items,
-                embedding_dim=100
+                num_users=self.num_users,
+                num_items=self.num_items,
+                n_factors=100
             ).to(device)
+            logger.info(f"MF Model embeddings - Users: {self.model.user_factors.num_embeddings}, Items: {self.model.item_factors.num_embeddings}")
         else:
-            self.model = VAE(num_items=num_items).to(device)
+            self.model = VAE(num_items=self.num_items).to(device)
             
-        # Initialize optimizer
-        self.optimizer = torch.optim.Adam(
-            self.model.parameters(),
-            lr=learning_rate
-        )
+        # Initialize optimizer with SparseAdam for MF model
+        if model_type == 'mf':
+            self.optimizer = torch.optim.SparseAdam(
+                self.model.parameters(),
+                lr=learning_rate
+            )
+        else:
+            self.optimizer = torch.optim.Adam(
+                self.model.parameters(),
+                lr=learning_rate
+            )
 
     def fit(self, parameters, config) -> Tuple[NDArrays, int, Dict]:
         """Train model parameters on local data."""
         set_weights(self.model, parameters)
         logger.info(f"Starting training with config: {config}")
+        
+        # Log data info
+        for batch in self.trainloader:
+            if self.model_type == 'mf':
+                user_ids, item_ids, _ = batch
+                logger.info(f"Max user_id: {user_ids.max()}, num_users: {self.num_users}")
+                logger.info(f"Max item_id: {item_ids.max()}, num_items: {self.num_items}")
+            break
         
         metrics = train(
             model=self.model,
@@ -98,28 +111,24 @@ class MovieLensClient(NumPyClient):
 def client_fn(context: Context) -> Client:
     """Create a MovieLens client."""
     config = context.run_config
+    model_type = config["model-type"]
 
-    trainloader, testloader, num_items = load_data(
-        num_users=int(config["num-users"]),
-        model_type=config["model-type"]
-    )
+    # Get data with dimensions
+    trainloader, testloader, dimensions = load_data(model_type=model_type)
 
-    # Create NumPyClient instance
     numpy_client = MovieLensClient(
         trainloader=trainloader,
         testloader=testloader,
-        model_type=config["model-type"],
-        num_items=num_items,
-        num_users=int(config["num-users"]),
+        model_type=model_type,
+        num_users=dimensions['num_users'],  # Use dimensions from load_data
+        num_items=dimensions['num_items'],  # Use dimensions from load_data
         learning_rate=float(config["learning-rate"]),
         local_epochs=int(config["local-epochs"]),
         top_k=int(config["top-k"]),
         device=torch.device("cuda" if torch.cuda.is_available() 
-                                 else "mps" if torch.backends.mps.is_available() 
-                                 else "cpu")
+                          else "mps" if torch.backends.mps.is_available() and model_type == 'vae'
+                          else "cpu")
     )
-    
-    # Convert to Client and return
     return numpy_client.to_client()
 
 # Create the app instance

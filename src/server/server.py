@@ -8,21 +8,27 @@ import atexit
 from src.utils.visualization import plot_metrics_history
 from typing import Dict, Any
 import atexit
-
+import torch
+from src.data import load_data
 
 def server_fn(context: Context) -> ServerApp:
     """Create server instance with initial parameters."""
     # Get config values
-    num_items = context.run_config["num-items"]
-    num_users = context.run_config["num-users"]
     model_type = context.run_config["model-type"]
     num_rounds = context.run_config["num-server-rounds"]
     
-    # Create initial model
+    # Load data with dimensions
+    trainloader, _, dimensions = load_data(model_type=model_type)
+    
+    # Add dimensions to run_config (not config)
+    context.run_config["num-users"] = dimensions['num_users']
+    context.run_config["num-items"] = dimensions['num_items']
+    
+    # Create initial model with loaded dimensions
     model = (
-        MatrixFactorization(num_users=num_users, num_items=num_items)
+        MatrixFactorization(num_users=dimensions['num_users'], num_items=dimensions['num_items'])
         if model_type == "mf"
-        else VAE(num_items=num_items, latent_dim=100)
+        else VAE(num_items=dimensions['num_items'], latent_dim=100)
     )
     
     # Create strategy with initial parameters
