@@ -17,7 +17,9 @@ def plot_metrics_history(train_history: dict, test_history: dict, save_path: str
 
     # Loss plot
     if train_history.get('rounds'):
-        axs[0, 0].plot(train_history['rounds'], train_history['train_loss'], label='Training Loss')
+        # Create x-axis values for training (fractional steps between rounds)
+        train_steps = np.linspace(train_history['rounds'][0], train_history['rounds'][-1], len(train_history['train_loss']))
+        axs[0, 0].plot(train_steps, train_history['train_loss'], label='Training Loss')
     if test_history.get('rounds'):
         axs[0, 0].plot(test_history['rounds'], test_history['test_loss'], label='Test Loss')
     axs[0, 0].set_xlabel('Rounds')
@@ -28,7 +30,8 @@ def plot_metrics_history(train_history: dict, test_history: dict, save_path: str
 
     # RMSE plot
     if train_history.get('rounds'):
-        axs[0, 1].plot(train_history['rounds'], train_history['train_rmse'], label='Training RMSE', color='orange')
+        train_steps = np.linspace(train_history['rounds'][0], train_history['rounds'][-1], len(train_history['train_rmse']))
+        axs[0, 1].plot(train_steps, train_history['train_rmse'], label='Training RMSE', color='orange')
     if test_history.get('rounds'):
         axs[0, 1].plot(test_history['rounds'], test_history['test_rmse'], label='Test RMSE', color='red')
     axs[0, 1].set_xlabel('Rounds')
