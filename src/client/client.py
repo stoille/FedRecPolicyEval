@@ -31,6 +31,7 @@ class MovieLensClient(NumPyClient):
         local_epochs: int,
         top_k: int,
         device: str,
+        dimensions: dict,
     ):
         self.trainloader = trainloader
         self.testloader = testloader
@@ -41,6 +42,7 @@ class MovieLensClient(NumPyClient):
         self.local_epochs = local_epochs
         self.top_k = top_k
         self.device = device
+        self.dimensions = dimensions
         
         # Initialize model with provided dimensions
         if model_type == 'mf':
@@ -101,7 +103,8 @@ class MovieLensClient(NumPyClient):
             device=self.device,
             top_k=self.top_k,
             model_type=self.model_type,
-            num_items=self.num_items
+            num_items=self.num_items,
+            user_map=self.dimensions['user_map']
         )
         
         logger.info(f"Evaluation completed with metrics: {metrics}")
@@ -120,14 +123,15 @@ def client_fn(context: Context) -> Client:
         trainloader=trainloader,
         testloader=testloader,
         model_type=model_type,
-        num_users=dimensions['num_users'],  # Use dimensions from load_data
-        num_items=dimensions['num_items'],  # Use dimensions from load_data
+        num_users=dimensions['num_users'],
+        num_items=dimensions['num_items'],
         learning_rate=float(config["learning-rate"]),
         local_epochs=int(config["local-epochs"]),
         top_k=int(config["top-k"]),
         device=torch.device("cuda" if torch.cuda.is_available() 
                           else "mps" if torch.backends.mps.is_available() and model_type == 'vae'
-                          else "cpu")
+                          else "cpu"),
+        dimensions=dimensions
     )
     return numpy_client.to_client()
 

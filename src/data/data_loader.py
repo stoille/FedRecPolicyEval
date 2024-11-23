@@ -30,7 +30,8 @@ def load_data(model_type: str = 'vae') -> tuple[DataLoader, DataLoader, dict]:
     # Get dimensions from data
     dimensions = {
         'num_users': len(user_map),
-        'num_items': len(item_map)
+        'num_items': len(item_map),
+        'user_map': user_map
     }
     
     # Split data

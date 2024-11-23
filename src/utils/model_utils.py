@@ -1,6 +1,9 @@
 from collections import OrderedDict
 import torch
 from src.models.matrix_factorization import MatrixFactorization
+import logging
+
+logger = logging.getLogger("Metrics")
 
 def get_weights(net):
     return [val.cpu().numpy() for _, val in net.state_dict().items()]
@@ -10,24 +13,23 @@ def set_weights(net, parameters):
     state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
     net.load_state_dict(state_dict, strict=True)
 
-def get_recommendations(model, user_vector, top_k=10, device='cpu', penalty_value=0.1):
+def get_recommendations(model, user_vector, user_id, top_k=10, device='cpu', penalty_value=0.1):
     model.eval()
     with torch.no_grad():
         if isinstance(model, MatrixFactorization):
-            # For MF model
-            user_id = torch.tensor([0]).to(device)  # Current user
+            # Adjust user_id to be zero-indexed since MovieLens dataset is 1-indexed
+            adjusted_user_id = user_id - 1 if user_id > 0 else user_id
+            user_id = torch.tensor([adjusted_user_id]).to(device)
             item_ids = torch.arange(model.item_factors.num_embeddings).to(device)
             predictions = model(user_id.expand(len(item_ids)), item_ids)
-            predictions[user_vector.nonzero(as_tuple=True)] -= penalty_value
             _, indices = torch.topk(predictions, top_k)
+            return indices.cpu().numpy(), predictions.cpu().numpy()
         else:
-            # For VAE model
             user_vector = user_vector.to(device)
             recon_vector, _, _ = model(user_vector.unsqueeze(0))
             recon_vector = recon_vector.squeeze(0)
-            recon_vector[user_vector.nonzero(as_tuple=True)] -= penalty_value
             _, indices = torch.topk(recon_vector, top_k)
-        return indices.cpu().numpy()
+            return indices.cpu().numpy(), recon_vector.cpu().numpy()
 
 def train(net, trainloader, epochs, learning_rate, device, total_items):
     net.to(device)

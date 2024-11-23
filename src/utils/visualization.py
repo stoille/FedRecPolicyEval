@@ -13,65 +13,93 @@ def plot_metrics_history(train_history: dict, test_history: dict, save_path: str
         logger.warning("No metrics to plot")
         return
 
-    fig, axs = plt.subplots(2, 3, figsize=(18, 10))
+    fig, axs = plt.subplots(4, 2, figsize=(15, 24))
+    
+    # Generate proper sequential indices
+    train_indices = range(1, len(train_history.get('train_loss', [])) + 1)
+    test_indices = range(1, len(test_history.get('test_loss', [])) + 1)
 
-    # Loss plot
-    if train_history.get('rounds'):
-        # Create x-axis values for training (fractional steps between rounds)
-        train_steps = np.linspace(train_history['rounds'][0], train_history['rounds'][-1], len(train_history['train_loss']))
-        axs[0, 0].plot(train_steps, train_history['train_loss'], label='Training Loss')
-    if test_history.get('rounds'):
-        axs[0, 0].plot(test_history['rounds'], test_history['test_loss'], label='Test Loss')
-    axs[0, 0].set_xlabel('Rounds')
-    axs[0, 0].set_ylabel('Loss')
-    axs[0, 0].set_title('Loss')
-    axs[0, 0].legend()
-    axs[0, 0].grid(True)
+    # Training Loss plot
+    ax1 = axs[0, 0]
+    if train_history.get('train_loss'):
+        ax1.plot(train_indices, train_history['train_loss'], label='Training Loss')
+    ax1.set_xlabel('Epochs')
+    ax1.set_ylabel('Loss')
+    ax1.set_title('Training Loss')
+    ax1.legend()
+    ax1.grid(True)
 
-    # RMSE plot
-    if train_history.get('rounds'):
-        train_steps = np.linspace(train_history['rounds'][0], train_history['rounds'][-1], len(train_history['train_rmse']))
-        axs[0, 1].plot(train_steps, train_history['train_rmse'], label='Training RMSE', color='orange')
-    if test_history.get('rounds'):
-        axs[0, 1].plot(test_history['rounds'], test_history['test_rmse'], label='Test RMSE', color='red')
-    axs[0, 1].set_xlabel('Rounds')
-    axs[0, 1].set_ylabel('RMSE')
-    axs[0, 1].set_title('Root Mean Squared Error')
-    axs[0, 1].legend()
-    axs[0, 1].grid(True)
+    # Test Loss plot
+    ax2 = axs[0, 1]
+    if test_history.get('test_loss'):
+        ax2.plot(test_indices, test_history['test_loss'], label='Test Loss')
+    ax2.set_xlabel('Epochs')
+    ax2.set_ylabel('Loss')
+    ax2.set_title('Test Loss')
+    ax2.legend()
+    ax2.grid(True)
 
-    # Precision/Recall plot
-    axs[0, 2].plot(test_history['rounds'], test_history['precision_at_k'], label='Precision@K')
-    axs[0, 2].plot(test_history['rounds'], test_history['recall_at_k'], label='Recall@K')
-    axs[0, 2].set_xlabel('Rounds')
-    axs[0, 2].set_ylabel('Score')
-    axs[0, 2].set_title('Precision@K and Recall@K')
-    axs[0, 2].legend()
-    axs[0, 2].grid(True)
+    # Training RMSE plot
+    ax3 = axs[1, 0]
+    if train_history.get('train_rmse'):
+        ax3.plot(train_indices, train_history['train_rmse'], label='Training RMSE', color='orange')
+    ax3.set_xlabel('Epochs')
+    ax3.set_ylabel('RMSE')
+    ax3.set_title('Training RMSE')
+    ax3.legend()
+    ax3.grid(True)
+
+    # Test RMSE plot
+    ax4 = axs[1, 1]
+    if test_history.get('test_rmse'):
+        ax4.plot(test_indices, test_history['test_rmse'], label='Test RMSE', color='red')
+    ax4.set_xlabel('Epochs')
+    ax4.set_ylabel('RMSE')
+    ax4.set_title('Test RMSE')
+    ax4.legend()
+    ax4.grid(True)
+
+    # Precision and Recall plot
+    ax5 = axs[2, 0]
+    if test_history.get('precision_at_k'):
+        ax5.plot(test_indices, test_history['precision_at_k'], label='Precision@K')
+    if test_history.get('recall_at_k'):
+        ax5.plot(test_indices, test_history['recall_at_k'], label='Recall@K')
+    ax5.set_xlabel('Rounds')
+    ax5.set_ylabel('Score')
+    ax5.set_title('Precision and Recall')
+    ax5.legend()
+    ax5.grid(True)
 
     # NDCG plot
-    axs[1, 0].plot(test_history['rounds'], test_history['ndcg_at_k'], label='NDCG@K', color='lime')
-    axs[1, 0].set_xlabel('Rounds')
-    axs[1, 0].set_ylabel('NDCG')
-    axs[1, 0].set_title('Normalized Discounted Cumulative Gain')
-    axs[1, 0].legend()
-    axs[1, 0].grid(True)
-
-    # ROC AUC plot
-    axs[1, 1].plot(test_history['rounds'], test_history['roc_auc'], label='ROC AUC', color='navy')
-    axs[1, 1].set_xlabel('Rounds')
-    axs[1, 1].set_ylabel('ROC AUC')
-    axs[1, 1].set_title('ROC AUC')
-    axs[1, 1].legend()
-    axs[1, 1].grid(True)
+    ax6 = axs[2, 1]
+    if test_history.get('ndcg_at_k'):
+        ax6.plot(test_indices, test_history['ndcg_at_k'], label='NDCG@K', color='green')
+    ax6.set_xlabel('Rounds')
+    ax6.set_ylabel('Score')
+    ax6.set_title('NDCG@K')
+    ax6.legend()
+    ax6.grid(True)
 
     # Coverage plot
-    axs[1, 2].plot(test_history['rounds'], test_history['coverage'], label='Coverage', color='sienna')
-    axs[1, 2].set_xlabel('Rounds')
-    axs[1, 2].set_ylabel('Coverage')
-    axs[1, 2].set_title('Coverage')
-    axs[1, 2].legend()
-    axs[1, 2].grid(True)
+    ax7 = axs[3, 0]
+    if test_history.get('coverage'):
+        ax7.plot(test_indices, test_history['coverage'], label='Coverage', color='sienna')
+    ax7.set_xlabel('Rounds')
+    ax7.set_ylabel('Coverage')
+    ax7.set_title('Coverage')
+    ax7.legend()
+    ax7.grid(True)
+
+    # ROC AUC plot
+    ax8 = axs[3, 1]
+    if test_history.get('roc_auc'):
+        ax8.plot(test_indices, test_history['roc_auc'], label='ROC AUC', color='navy')
+    ax8.set_xlabel('Rounds')
+    ax8.set_ylabel('ROC AUC')
+    ax8.set_title('ROC AUC')
+    ax8.legend()
+    ax8.grid(True)
 
     plt.tight_layout()
     plt.savefig(save_path)

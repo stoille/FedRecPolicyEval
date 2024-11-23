@@ -1,13 +1,15 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
-from sklearn.metrics import roc_auc_score
 from src.utils.model_utils import get_recommendations
 import logging
 import sys
 from typing import Dict
 import atexit
 from src.utils.visualization import plot_metrics_history, plot_metrics_from_files
+from sklearn.metrics import roc_auc_score
+import json
+from src.models.matrix_factorization import MatrixFactorization
 
 # Configure logging at the top of the file
 logging.basicConfig(
@@ -19,7 +21,6 @@ logger = logging.getLogger("Metrics")
 
 class MetricsLogger:
     def __init__(self):
-        # Initialize separate histories for training and validation
         self.train_history = {
             'train_loss': [],
             'train_rmse': [],
@@ -35,76 +36,66 @@ class MetricsLogger:
             'roc_auc': [],
             'rounds': []
         }
-        self.current_round = 0
-
-    def log_metrics(self, metrics: Dict[str, float], is_training: bool = False):
-        """Log metrics for the current round."""
-        if not metrics:
-            return
-
-        # Determine which history to log to
-        if is_training:
-            history = self.train_history
-            phase = 'training'
-        else:
-            history = self.test_history
-            phase = 'test'
-
-        history['rounds'].append(self.current_round)
-
-        # Log metrics that exist in the input metrics dict
-        for key in metrics:
-            if key in history:
-                history[key].append(metrics[key])
-
-        self.current_round += 1
-        logger.info(f"Logged {phase} metrics for round {self.current_round}: {metrics}")
+        self.current_round = 0  # Start from 0
         
-        # Save history to JSON file
-        import json
+    def log_metrics(self, metrics, is_training=True):
+        history = self.train_history if is_training else self.test_history
+        
         if is_training:
+            # For training metrics, append to existing arrays
+            for key in metrics:
+                if key in history and metrics[key] is not None:
+                    history[key].append(metrics[key])
+            # Don't increment rounds for training metrics
+        else:
+            # For test metrics, increment round first
+            self.current_round += 1
+            # Then append all metrics
+            history['rounds'].append(self.current_round)
+            for key in metrics:
+                if key in history and metrics[key] is not None:
+                    history[key].append(metrics[key])
+        
+        self._save_histories()
+
+    def _save_histories(self):
+        try:
+            # Ensure all arrays in test_history have same length
+            if self.test_history['rounds']:
+                test_len = len(self.test_history['rounds'])
+                for key in self.test_history:
+                    if key != 'rounds':
+                        # Pad with None or last value if necessary
+                        while len(self.test_history[key]) < test_len:
+                            pad_value = self.test_history[key][-1] if self.test_history[key] else None
+                            self.test_history[key].append(pad_value)
+            
+            # Save histories
             with open('train_history.json', 'w') as f:
                 json.dump(self.train_history, f)
-        else:
             with open('test_history.json', 'w') as f:
                 json.dump(self.test_history, f)
+            
+            plot_metrics_from_files('train_history.json', 'test_history.json')
+            
+        except Exception as e:
+            logger.error(f"Error saving histories: {str(e)}")
 
 # Create global metrics logger
 metrics_logger = MetricsLogger()
 
-# Register cleanup function
-def cleanup():
-    logger.info("Saving metrics plots and history...")
-    # Save histories to separate JSON files
-    import json
-    #with open('train_history.json', 'w') as f:
-    #    json.dump(metrics_logger.train_history, f)
-    with open('test_history.json', 'w') as f:
-        json.dump(metrics_logger.test_history, f)
-    # Plot metrics history
-    plot_metrics_from_files('train_history.json', 'test_history.json')
-
-atexit.register(cleanup)
-
-def loss_function(recon_x, x, mu, logvar, epoch=1, num_epochs=1):
-    reconstruction_loss = F.binary_cross_entropy(recon_x, x, reduction='mean')
-    kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
-    beta = min(epoch / (num_epochs/4), 1.0) * 0.1
-    return reconstruction_loss + beta * kl_loss
-
-def compute_rmse(predictions, targets):
-    """Compute Root Mean Square Error."""
-    mse = F.mse_loss(predictions, targets)
-    return torch.sqrt(mse).item()
-
-def compute_metrics(model, batch, top_k, total_items, device):
+def compute_metrics(model, batch, top_k, total_items, device, user_map):
     precisions, recalls, ndcgs, roc_aucs = [], [], [], []
     all_recommended_items = []
 
-    for user_vector in batch:
-        top_k_items = get_recommendations(model, user_vector, top_k, device)
+    for batch_idx, user_vector in enumerate(batch):
+        # Get original user_id from the mapping
+        user_id = list(user_map.keys())[list(user_map.values()).index(batch_idx)]
+        top_k_items = get_recommendations(model, user_vector, user_id, top_k, device)
         interacted_items = user_vector.nonzero(as_tuple=True)[0]
         relevant_items = interacted_items.cpu().numpy()
+        logger.info(f"Top-k items: {top_k_items}")
+        logger.info(f"Relevant items: {relevant_items}")
         
         metrics = calculate_recommendation_metrics(
             top_k_items, relevant_items, top_k, total_items
@@ -129,16 +120,32 @@ def compute_metrics(model, batch, top_k, total_items, device):
 
 def calculate_recommendation_metrics(top_k_items, relevant_items, top_k, total_items):
     hits_arr = np.isin(top_k_items, relevant_items)
+    logger.info(f"Hits array: {hits_arr}")
+    
+    # Debug logging to understand the values
+    #logger.info(f"Top-k items selected: {top_k_items[:5]}")  # Will show indices
+    #logger.info(f"Relevant items: {relevant_items[:5]}")  # Ground truth indices
+    
     hits = hits_arr.sum()
+    logger.info(f"Hits = hits_arr.sum() = {hits}")
+    
+    overlaps = set(top_k_items) & set(relevant_items)
+    logger.info(f"Overlapping items: {overlaps}")
     
     precision = hits / top_k
     recall = hits / len(relevant_items) if len(relevant_items) > 0 else 0
+    logger.info(f"Precision = hits / top_k = {hits} / {top_k} = {precision}")
+    logger.info(f"Recall = hits / len(relevant_items) = {hits} / {len(relevant_items)} = {recall}")
     
+    # Compute NDCG
     dcg = sum([1 / np.log2(i + 2) if top_k_items[i] in relevant_items else 0 
                for i in range(top_k)])
+    logger.info(f"DCG = sum([1 / np.log2(i + 2) if top_k_items[i] in relevant_items else 0 for i in range(top_k)]) = {dcg}")
     idcg = sum([1 / np.log2(i + 2) for i in range(min(len(relevant_items), top_k))])
+    logger.info(f"IDCG = sum([1 / np.log2(i + 2) for i in range(min(len(relevant_items), top_k))]) = {idcg}")
     ndcg = dcg / idcg if idcg > 0 else 0.0
-    
+    logger.info(f"NDCG = dcg / idcg = {dcg} / {idcg} = {ndcg}")
+    # Compute ROC AUC
     actual = np.zeros(total_items)
     actual[relevant_items] = 1
     scores = np.zeros(total_items)
@@ -147,7 +154,7 @@ def calculate_recommendation_metrics(top_k_items, relevant_items, top_k, total_i
     roc_auc = None
     if len(np.unique(actual)) > 1:
         roc_auc = roc_auc_score(actual, scores)
-    
+    logger.info(f"ROC AUC: {roc_auc}")
     return {
         'precision': precision,
         'recall': recall,
@@ -200,64 +207,276 @@ def train(model, train_loader, optimizer, device, epochs, model_type: str):
             epoch_metrics['train_loss'] /= num_batches
             epoch_metrics['train_rmse'] /= num_batches
 
-        # Log metrics for this epoch
+        # Add round number before logging metrics
+        metrics_logger.train_history['rounds'].append(metrics_logger.current_round)
         metrics_logger.log_metrics(epoch_metrics, is_training=True)
         logger.info(f"Epoch {epoch+1}/{epochs} Complete | Metrics: {epoch_metrics}")
     
     return epoch_metrics
 
-def test(model, test_loader, device, top_k, model_type: str, num_items: int):
-    """Test model."""
+def test(model, test_loader, device, top_k, model_type, num_items, user_map):
     model.eval()
-    metrics = {
-        'test_loss': 0,
-        'test_rmse': 0,
-        'precision_at_k': 0,
-        'recall_at_k': 0,
-        'ndcg_at_k': 0,
-        'coverage': 0,
-        'roc_auc': 0,
-    }
-    num_samples = 0
+    total_loss = 0.0
+    total_rmse = 0.0
+    num_batches = 0
+    all_top_k_items = []
+    all_top_k_scores = []
+    all_ground_truth = []
+    
+    def process_recommendations(user_id, user_vector, ground_truth, model_type):
+        try:
+            top_k_items, all_scores = get_recommendations(model, user_vector, user_id, top_k, device)
+            all_top_k_items.append(top_k_items)
+            all_top_k_scores.append(all_scores)
+            all_ground_truth.append(ground_truth)
+        except Exception as e:
+            logger.error(f"Error processing {model_type} user {user_id}: {str(e)}")
     
     with torch.no_grad():
         for batch_idx, batch in enumerate(test_loader):
-            if model_type == 'vae':
-                ratings = batch.to(device)
-                recon_batch, mu, logvar = model(ratings)
-                loss = model.loss_function(recon_batch, ratings, mu, logvar)
-                batch_metrics = compute_metrics(model, ratings, top_k, num_items, device)
-                # Calculate RMSE for VAE
-                metrics['test_rmse'] += compute_rmse(recon_batch, ratings) * len(ratings)
-            else:  # model_type == 'mf'
-                user_ids, item_ids, ratings = batch
-                user_ids = user_ids.to(device)
-                item_ids = item_ids.to(device)
-                ratings = ratings.to(device)
+            if isinstance(model, MatrixFactorization):
+                user_ids, item_ids, ratings = [b.to(device) for b in batch]
                 predictions = model(user_ids, item_ids)
                 loss = torch.nn.MSELoss()(predictions, ratings)
-                batch_metrics = compute_metrics(model, ratings, top_k, num_items, device)
-                # Calculate RMSE for MF
-                metrics['test_rmse'] += compute_rmse(predictions, ratings) * len(ratings)
+                
+                for i in range(len(user_ids)):
+                    user_id = user_ids[i].item()
+                    ground_truth = item_ids[i][ratings[i] > 0].cpu().numpy()
+                    process_recommendations(user_id, None, ground_truth, "MF")
             
-            test_loss = loss.item() * len(ratings)
-            metrics['test_loss'] += test_loss
+            else:  # VAE case
+                batch = batch.to(device)
+                recon_batch, mu, logvar = model(batch)
+                loss = model.loss_function(recon_batch, batch, mu, logvar)
+                
+                for i in range(batch.size(0)):
+                    user_vector = batch[i]
+                    ground_truth = torch.nonzero(user_vector).squeeze().cpu().numpy()
+                    process_recommendations(None, user_vector, ground_truth, "VAE")
             
-            for k, v in batch_metrics.items():
-                if v is not None and k != 'test_rmse':  # Skip RMSE from batch_metrics
-                    metrics[k] += v * len(ratings)
-            
-            num_samples += len(ratings)
-            
-            if batch_idx % 10 == 0:
-                logger.info(f"Processed {batch_idx}/{len(test_loader)} batches")
+            rmse = torch.sqrt(loss)
+            total_loss += loss.item()
+            total_rmse += rmse.item()
+            num_batches += 1
     
-    # Average metrics
-    for k in metrics:
-        if num_samples > 0:
-            metrics[k] /= num_samples
+    # Calculate metrics
+    metrics = calculate_global_metrics(
+        np.array(all_top_k_items),
+        np.array(all_top_k_scores),
+        all_ground_truth,
+        top_k,
+        num_items
+    )
     
-    # Log with is_training=False
+    # Add average loss and RMSE
+    metrics.update({
+        'test_loss': total_loss / num_batches if num_batches > 0 else float('inf'),
+        'test_rmse': total_rmse / num_batches if num_batches > 0 else float('inf')
+    })
+    
     metrics_logger.log_metrics(metrics, is_training=False)
-    logger.info(f"Testing Complete | Metrics: {metrics}")
+    
     return metrics
+
+def calculate_global_metrics(top_k_items, top_k_scores, ground_truth, top_k, num_items):
+    n_users = len(top_k_items)
+    precisions = []
+    recalls = []
+    ndcgs = []
+    all_recommended = set()
+    
+    # For ROC AUC calculation
+    all_true = np.zeros((n_users, num_items))
+    all_pred = np.zeros((n_users, num_items))
+    
+    for i, (items, scores, truth) in enumerate(zip(top_k_items, top_k_scores, ground_truth)):
+        # Ensure arrays are 1D
+        items = np.atleast_1d(items)
+        scores = np.atleast_1d(scores)
+        truth = np.atleast_1d(truth)
+        
+        if truth.size == 0:
+            logger.warning(f"Empty ground truth for user {i}, skipping")
+            continue
+            
+        all_recommended.update(items)
+        hits = len(set(items.tolist()) & set(truth.tolist()))
+        
+        precisions.append(hits / top_k)
+        recalls.append(hits / len(truth) if len(truth) > 0 else 0)
+        
+        # NDCG calculation
+        dcg = sum(1 / np.log2(i + 2) for i, item in enumerate(items) if item in truth)
+        idcg = sum(1 / np.log2(i + 2) for i in range(min(len(truth), top_k)))
+        ndcgs.append(dcg / idcg if idcg > 0 else 0)
+        
+        # Set up ROC AUC arrays
+        all_true[i, truth] = 1
+        for j, (item, score) in enumerate(zip(items[:top_k], scores[:top_k])):
+            all_pred[i, item] = score
+    
+    if not precisions:
+        logger.warning("No valid predictions found")
+        return {
+            'precision_at_k': 0.0,
+            'recall_at_k': 0.0,
+            'ndcg_at_k': 0.0,
+            'coverage': 0.0,
+            'roc_auc': 0.5
+        }
+    
+    # Calculate ROC AUC
+    try:
+        roc_auc = roc_auc_score(all_true.flatten(), all_pred.flatten())
+    except ValueError:
+        logger.warning("ROC AUC calculation failed, defaulting to 0.5")
+        roc_auc = 0.5
+    
+    return {
+        'precision_at_k': np.mean(precisions),
+        'recall_at_k': np.mean(recalls),
+        'ndcg_at_k': np.mean(ndcgs),
+        'coverage': len(all_recommended) / num_items,
+        'roc_auc': roc_auc
+    }
+
+def loss_function(recon_x, x, mu, logvar, epoch=1, num_epochs=1):
+    # Compute binary cross entropy loss for reconstruction
+    reconstruction_loss = F.binary_cross_entropy(recon_x, x, reduction='mean')
+    # Compute KL divergence loss
+    kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
+    # Compute beta value for KL divergence loss
+    beta = min(epoch / (num_epochs/4), 1.0) * 0.1
+    # Return total loss
+    return reconstruction_loss + beta * kl_loss
+
+def compute_rmse(predictions, targets):
+    # Compute mean squared error
+    mse = F.mse_loss(predictions, targets)
+    # Return square root of mean squared error
+    return torch.sqrt(mse).item()
+
+def mean_squared_error(y_true, y_pred):
+    # Return mean squared error
+    return np.mean((y_true - y_pred) ** 2)
+
+def precision_at_k(y_true, y_pred, k):
+    # Convert inputs to numpy arrays if they aren't already
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    
+    # Get top k predictions
+    if y_pred.dtype == np.float64:
+        top_k_items = np.argsort(y_pred)[-k:]
+    else:
+        # Handle case where y_pred already contains indices
+        top_k_items = y_pred[:k]
+    
+    # Convert to sets for intersection
+    relevant_items = set(y_true)
+    recommended_items = set(top_k_items)
+    
+    hits = len(relevant_items.intersection(recommended_items))
+    return hits / k if k > 0 else 0.0
+
+def recall_at_k(y_true, y_pred, k):
+    # Convert inputs to numpy arrays if they aren't already
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    
+    # Get top k predictions
+    if y_pred.dtype == np.float64:
+        top_k_items = np.argsort(y_pred)[-k:]
+    else:
+        top_k_items = y_pred[:k]
+    
+    # Convert to sets for intersection
+    relevant_items = set(y_true)
+    recommended_items = set(top_k_items)
+    
+    hits = len(relevant_items.intersection(recommended_items))
+    return hits / len(relevant_items) if len(relevant_items) > 0 else 0.0
+
+def ndcg_at_k(y_true, y_pred, k):
+    # Convert inputs to numpy arrays if they aren't already
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    
+    if y_pred.dtype == np.float64:
+        top_k_items = np.argsort(y_pred)[-k:]
+    else:
+        top_k_items = y_pred[:k]
+    
+    relevant_items = set(y_true)
+    
+    dcg = sum(1 / np.log2(i + 2) for i, item in enumerate(top_k_items) if item in relevant_items)
+    idcg = sum(1 / np.log2(i + 2) for i in range(min(len(relevant_items), k)))
+    
+    return dcg / idcg if idcg > 0 else 0.0
+
+def coverage(all_recommended_items, total_items, item_popularity=None):
+    """Calculate coverage weighted by item popularity.
+    
+    Args:
+        all_recommended_items: Set of items recommended across all users
+        total_items: Total number of possible items
+        item_popularity: Dict mapping item_id to its popularity score (interaction count)
+    """
+    if item_popularity is None:
+        # Fallback to basic coverage if popularity data not available
+        return len(all_recommended_items) / total_items
+        
+    # Calculate popularity-weighted coverage
+    recommended_pop_sum = sum(item_popularity.get(item, 0) for item in all_recommended_items)
+    total_pop_sum = sum(item_popularity.values())
+    
+    return recommended_pop_sum / total_pop_sum if total_pop_sum > 0 else 0
+
+def compute_roc_auc(model, batch, device):
+    """Compute ROC AUC score for model predictions."""
+    try:
+        if isinstance(model, MatrixFactorization):
+            ratings = batch.to(device)
+            num_users, num_items = ratings.shape
+            
+            # Create all possible user-item pairs
+            user_ids = torch.arange(num_users, device=device).unsqueeze(1).expand(-1, num_items).reshape(-1)
+            item_ids = torch.arange(num_items, device=device).unsqueeze(0).expand(num_users, -1).reshape(-1)
+            
+            # Get true labels and predictions
+            y_true = ratings.flatten().cpu().numpy()
+            y_pred = model(user_ids, item_ids).cpu().detach().numpy().flatten()
+            
+        else:  # VAE case
+            ratings = batch.to(device)
+            y_true = ratings.cpu().numpy()
+            recon_batch, _, _ = model(ratings)
+            y_pred = recon_batch.cpu().detach().numpy()
+            
+            # Keep original shape for VAE predictions
+            y_true = y_true.flatten()
+            y_pred = y_pred.flatten()
+        
+        # Filter out missing/unobserved interactions first
+        mask = y_true != 0
+        if mask.sum() > 0:
+            y_true = y_true[mask]
+            y_pred = y_pred[mask]
+            
+            # Convert to binary after filtering
+            y_true_binary = (y_true > 3).astype(int)
+            
+            # Add logging to debug class distribution
+            unique_classes = np.unique(y_true_binary)
+            logger.info(f"Unique classes in batch: {unique_classes}, Positive samples: {sum(y_true_binary)}, Total: {len(y_true_binary)}")
+            
+            if len(unique_classes) >= 2:
+                return roc_auc_score(y_true_binary, y_pred)
+            else:
+                logger.warning(f"Not enough classes. Found classes: {unique_classes}")
+        
+        return 0.5  # Default value (random classifier performance)
+        
+    except Exception as e:
+        logger.warning(f"ROC AUC calculation failed: {str(e)}")
+        return 0.5

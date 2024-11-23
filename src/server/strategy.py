@@ -111,10 +111,6 @@ class CustomFedAvg(FedAvg):
         # Store in history
         self.history[rnd] = aggregated_metrics
         
-        # Log metrics using MetricsLogger
-        from src.utils.metrics import metrics_logger
-        metrics_logger.log_metrics(aggregated_metrics)
-        
         return aggregated, metrics
 
     def aggregate_mf_parameters(
