@@ -163,56 +163,80 @@ def calculate_recommendation_metrics(top_k_items, relevant_items, top_k, total_i
     }
 
 def train(model, train_loader, optimizer, device, epochs, model_type: str):
-    """Train model."""
     model.train()
+    total_loss = 0.0
+    total_rmse = 0.0
+    num_batches = 0
+    
+    # Add annealing for VAE
+    beta_start = 0.0
+    beta_end = 0.1
+    
     for epoch in range(epochs):
-        epoch_metrics = {
-            'train_loss': 0.0,
-            'train_rmse': 0.0,
-            # Initialize other metrics if needed
-        }
-        num_batches = 0
+        epoch_loss = 0.0
+        epoch_rmse = 0.0
+        epoch_batches = 0
         
-        for batch_idx, batch in enumerate(train_loader):
-            if model_type == 'vae':
+        # Gradually increase beta for KL term
+        beta = min(epoch / (epochs/2), 1.0) * (beta_end - beta_start) + beta_start
+        
+        for batch in train_loader:
+            if model_type == 'mf':
+                user_ids, item_ids, ratings = [b.to(device) for b in batch]
+                optimizer.zero_grad()
+                
+                # Forward pass
+                predictions = model(user_ids, item_ids)
+                
+                # Compute loss only on non-zero ratings
+                mask = ratings > 0
+                loss = F.mse_loss(predictions[mask], ratings[mask])
+                
+                # Add L2 regularization
+                l2_reg = 0.01 * (
+                    model.user_factors.weight.norm(2) + 
+                    model.item_factors.weight.norm(2) +
+                    model.user_biases.weight.norm(2) + 
+                    model.item_biases.weight.norm(2)
+                )
+                loss += l2_reg
+                
+                # Compute RMSE
+                rmse = compute_rmse(predictions[mask], ratings[mask])
+                
+            else:  # VAE case
                 ratings = batch.to(device)
                 optimizer.zero_grad()
                 recon_batch, mu, logvar = model(ratings)
-                loss = model.loss_function(recon_batch, ratings, mu, logvar)
-                # Calculate RMSE for VAE
+                loss = model.loss_function(recon_batch, ratings, mu, logvar, beta=beta)
                 rmse = compute_rmse(recon_batch, ratings)
-            else:  # model_type == 'mf'
-                user_ids, item_ids, ratings = batch
-                user_ids = user_ids.to(device)
-                item_ids = item_ids.to(device)
-                ratings = ratings.to(device)
-                optimizer.zero_grad()
-                predictions = model(user_ids, item_ids)
-                loss = torch.nn.MSELoss()(predictions, ratings)
-                # Calculate RMSE for MF
-                rmse = compute_rmse(predictions, ratings)
             
             loss.backward()
             optimizer.step()
             
-            epoch_metrics['train_loss'] += loss.item()
-            epoch_metrics['train_rmse'] += rmse
-            num_batches += 1
+            epoch_loss += loss.item()
+            epoch_rmse += rmse
+            epoch_batches += 1
             
-            if batch_idx % 10 == 0:
-                logger.info(f"Epoch {epoch+1}/{epochs} | Batch {batch_idx}/{len(train_loader)} | Loss: {loss.item():.4f}")
-
         # Average metrics for this epoch
-        if num_batches > 0:
-            epoch_metrics['train_loss'] /= num_batches
-            epoch_metrics['train_rmse'] /= num_batches
-
-        # Add round number before logging metrics
-        metrics_logger.train_history['rounds'].append(metrics_logger.current_round)
-        metrics_logger.log_metrics(epoch_metrics, is_training=True)
-        logger.info(f"Epoch {epoch+1}/{epochs} Complete | Metrics: {epoch_metrics}")
+        avg_epoch_loss = epoch_loss / epoch_batches
+        avg_epoch_rmse = epoch_rmse / epoch_batches
+        
+        total_loss += avg_epoch_loss
+        total_rmse += avg_epoch_rmse
+        num_batches += 1
+     
+        # Log metrics for this epoch
+        metrics_logger.log_metrics({"train_loss": avg_epoch_loss, "train_rmse": avg_epoch_rmse}, is_training=True)   
+        logger.info(f"Epoch {epoch+1}/{epochs} | Loss: {avg_epoch_loss:.4f} | RMSE: {avg_epoch_rmse:.4f}")
     
-    return epoch_metrics
+    # Average metrics across epochs
+    avg_metrics = {
+        "train_loss": total_loss / num_batches,
+        "train_rmse": total_rmse / num_batches
+    }
+    
+    return avg_metrics
 
 def test(model, test_loader, device, top_k, model_type, num_items, user_map):
     model.eval()

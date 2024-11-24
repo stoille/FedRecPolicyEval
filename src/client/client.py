@@ -55,15 +55,8 @@ class MovieLensClient(NumPyClient):
         else:
             self.model = VAE(num_items=self.num_items).to(device)
             
-        # Initialize optimizer with SparseAdam for MF model
-        if model_type == 'mf':
-            self.optimizer = torch.optim.SparseAdam(
-                self.model.parameters(),
-                lr=learning_rate
-            )
-        else:
-            self.optimizer = torch.optim.Adam(
-                self.model.parameters(),
+        self.optimizer = torch.optim.Adam(
+            self.model.parameters(),
                 lr=learning_rate
             )
 

@@ -28,7 +28,7 @@ def server_fn(context: Context) -> ServerApp:
     model = (
         MatrixFactorization(num_users=dimensions['num_users'], num_items=dimensions['num_items'])
         if model_type == "mf"
-        else VAE(num_items=dimensions['num_items'], latent_dim=100)
+        else VAE(num_items=dimensions['num_items'], latent_dim=200)
     )
     
     # Create strategy with initial parameters

@@ -13,16 +13,27 @@ def set_weights(net, parameters):
     state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
     net.load_state_dict(state_dict, strict=True)
 
-def get_recommendations(model, user_vector, user_id, top_k=10, device='cpu', penalty_value=0.1):
+def get_recommendations(model, user_vector, user_id, top_k=10, device='cpu'):
     model.eval()
     with torch.no_grad():
         if isinstance(model, MatrixFactorization):
-            # Adjust user_id to be zero-indexed since MovieLens dataset is 1-indexed
-            adjusted_user_id = user_id - 1 if user_id > 0 else user_id
-            user_id = torch.tensor([adjusted_user_id]).to(device)
+            # Ensure user_id is properly formatted
+            user_id = torch.tensor([user_id]).to(device)
+            # Generate predictions for all items
             item_ids = torch.arange(model.item_factors.num_embeddings).to(device)
-            predictions = model(user_id.expand(len(item_ids)), item_ids)
-            _, indices = torch.topk(predictions, top_k)
+            user_ids = user_id.repeat(len(item_ids))
+            
+            # Get predictions
+            predictions = model(user_ids, item_ids)
+            
+            # Mask out items the user has already interacted with
+            if user_vector is not None:
+                user_vector = user_vector.to(device)
+                interacted_mask = user_vector > 0
+                predictions[interacted_mask] = float('-inf')
+            
+            # Get top-k items
+            values, indices = torch.topk(predictions, k=top_k)
             return indices.cpu().numpy(), predictions.cpu().numpy()
         else:
             user_vector = user_vector.to(device)
