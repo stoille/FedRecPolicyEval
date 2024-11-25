@@ -107,23 +107,15 @@ def plot_metrics_history(train_history: dict, test_history: dict, save_path: str
 
     logger.info(f"Saved metrics plot to {save_path}")
 
-def plot_metrics_from_files(train_history_file='train_history.json', test_history_file='test_history.json', save_path='metrics_plots.png'):
-    """Load histories from JSON files and plot metrics."""
-    try:
-        with open(train_history_file, 'r') as f:
-            train_history = json.load(f)
-    except FileNotFoundError:
-        logger.warning(f"{train_history_file} not found.")
-        train_history = {'rounds': []}
-
-    try:
-        with open(test_history_file, 'r') as f:
-            test_history = json.load(f)
-    except FileNotFoundError:
-        logger.warning(f"{test_history_file} not found.")
-        test_history = {'rounds': []}
-
-    plot_metrics_history(train_history, test_history, save_path)
+def plot_metrics_from_files(train_file, test_file, plot_filename):
+    # Load histories from files
+    with open(train_file, 'r') as f:
+        train_history = json.load(f)
+    with open(test_file, 'r') as f:
+        test_history = json.load(f)
+    
+    # Create plot
+    plot_metrics_history(train_history, test_history, f"{plot_filename}.png")
 
 def visualize_latent_space(model, dataloader, device):
     if not hasattr(model, 'encode'):

@@ -48,6 +48,7 @@ class CustomFedAvg(FedAvg):
         self.history = {'train_loss': []}
         self.model_type = model_type
         self.current_round = 0
+        self.num_clients = 0
 
     def aggregate_fit(
         self,
@@ -94,6 +95,11 @@ class CustomFedAvg(FedAvg):
 
         # Get metrics from all clients
         metrics_list = [(res.num_examples, res.metrics) for _, res in results]
+        
+        # Update num_clients based on actual results length
+        self.num_clients = len(results)
+
+        # Rest of the aggregation code...
         aggregated_metrics = {}
         total_examples = sum([num_examples for num_examples, _ in metrics_list])
 

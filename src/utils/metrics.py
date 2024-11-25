@@ -6,7 +6,6 @@ import logging
 import sys
 from typing import Dict
 import atexit
-from src.utils.visualization import plot_metrics_history, plot_metrics_from_files
 from sklearn.metrics import roc_auc_score
 import json
 from src.models.matrix_factorization import MatrixFactorization
@@ -60,23 +59,11 @@ class MetricsLogger:
 
     def _save_histories(self):
         try:
-            # Ensure all arrays in test_history have same length
-            if self.test_history['rounds']:
-                test_len = len(self.test_history['rounds'])
-                for key in self.test_history:
-                    if key != 'rounds':
-                        # Pad with None or last value if necessary
-                        while len(self.test_history[key]) < test_len:
-                            pad_value = self.test_history[key][-1] if self.test_history[key] else None
-                            self.test_history[key].append(pad_value)
-            
             # Save histories
             with open('train_history.json', 'w') as f:
                 json.dump(self.train_history, f)
             with open('test_history.json', 'w') as f:
                 json.dump(self.test_history, f)
-            
-            plot_metrics_from_files('train_history.json', 'test_history.json')
             
         except Exception as e:
             logger.error(f"Error saving histories: {str(e)}")
