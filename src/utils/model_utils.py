@@ -13,7 +13,7 @@ def set_weights(net, parameters):
     state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
     net.load_state_dict(state_dict, strict=True)
 
-def get_recommendations(model, user_vector, user_id, top_k=10, device='cpu'):
+def get_recommendations(model, user_vector, user_id, top_k, device, temperature, negative_penalty):
     model.eval()
     with torch.no_grad():
         if isinstance(model, MatrixFactorization):
@@ -31,6 +31,14 @@ def get_recommendations(model, user_vector, user_id, top_k=10, device='cpu'):
                 user_vector = user_vector.to(device)
                 interacted_mask = user_vector > 0
                 predictions[interacted_mask] = float('-inf')
+            
+            # Add temperature scaling for softer predictions
+            predictions = predictions / temperature
+            
+            # Add simple negative sampling
+            if user_vector is not None:
+                negative_items = torch.randint(0, model.item_factors.num_embeddings, (top_k,))
+                predictions[negative_items] -= negative_penalty
             
             # Get top-k items
             values, indices = torch.topk(predictions, k=top_k)

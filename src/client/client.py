@@ -32,6 +32,9 @@ class MovieLensClient(NumPyClient):
         top_k: int,
         device: str,
         dimensions: dict,
+        temperature: float,
+        negative_penalty: float,
+        popularity_penalty: float
     ):
         self.trainloader = trainloader
         self.testloader = testloader
@@ -43,6 +46,9 @@ class MovieLensClient(NumPyClient):
         self.top_k = top_k
         self.device = device
         self.dimensions = dimensions
+        self.temperature = temperature
+        self.negative_penalty = negative_penalty
+        self.popularity_penalty = popularity_penalty
         
         # Initialize model with provided dimensions
         if model_type == 'mf':
@@ -97,7 +103,10 @@ class MovieLensClient(NumPyClient):
             top_k=self.top_k,
             model_type=self.model_type,
             num_items=self.num_items,
-            user_map=self.dimensions['user_map']
+            user_map=self.dimensions['user_map'],
+            temperature=self.temperature,
+            negative_penalty=self.negative_penalty,
+            popularity_penalty=self.popularity_penalty
         )
         
         logger.info(f"Evaluation completed with metrics: {metrics}")
@@ -124,7 +133,10 @@ def client_fn(context: Context) -> Client:
         device=torch.device("cuda" if torch.cuda.is_available() 
                           else "mps" if torch.backends.mps.is_available() and model_type == 'vae'
                           else "cpu"),
-        dimensions=dimensions
+        dimensions=dimensions,
+        temperature=float(config["temperature"]),
+        negative_penalty=float(config["negative-penalty"]),
+        popularity_penalty=float(config["popularity-penalty"])
     )
     return numpy_client.to_client()
 

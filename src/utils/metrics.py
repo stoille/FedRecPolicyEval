@@ -71,14 +71,21 @@ class MetricsLogger:
 # Create global metrics logger
 metrics_logger = MetricsLogger()
 
-def compute_metrics(model, batch, top_k, total_items, device, user_map):
+def compute_metrics(model, batch, top_k, total_items, device, user_map, temperature, negative_penalty):
     precisions, recalls, ndcgs, roc_aucs = [], [], [], []
     all_recommended_items = []
 
     for batch_idx, user_vector in enumerate(batch):
-        # Get original user_id from the mapping
         user_id = list(user_map.keys())[list(user_map.values()).index(batch_idx)]
-        top_k_items = get_recommendations(model, user_vector, user_id, top_k, device)
+        top_k_items, all_scores = get_recommendations(
+            model, 
+            user_vector, 
+            user_id, 
+            top_k, 
+            device,
+            temperature=temperature,
+            negative_penalty=negative_penalty
+        )
         interacted_items = user_vector.nonzero(as_tuple=True)[0]
         relevant_items = interacted_items.cpu().numpy()
         logger.info(f"Top-k items: {top_k_items}")
@@ -225,7 +232,7 @@ def train(model, train_loader, optimizer, device, epochs, model_type: str):
     
     return avg_metrics
 
-def test(model, test_loader, device, top_k, model_type, num_items, user_map):
+def test(model, test_loader, device, top_k, model_type, num_items, user_map, temperature, negative_penalty, popularity_penalty):
     model.eval()
     total_loss = 0.0
     total_rmse = 0.0
@@ -236,7 +243,15 @@ def test(model, test_loader, device, top_k, model_type, num_items, user_map):
     
     def process_recommendations(user_id, user_vector, ground_truth, model_type):
         try:
-            top_k_items, all_scores = get_recommendations(model, user_vector, user_id, top_k, device)
+            top_k_items, all_scores = get_recommendations(
+                model, 
+                user_vector, 
+                user_id, 
+                top_k, 
+                device,
+                temperature,
+                negative_penalty
+            )
             all_top_k_items.append(top_k_items)
             all_top_k_scores.append(all_scores)
             all_ground_truth.append(ground_truth)
@@ -276,7 +291,8 @@ def test(model, test_loader, device, top_k, model_type, num_items, user_map):
         np.array(all_top_k_scores),
         all_ground_truth,
         top_k,
-        num_items
+        num_items,
+        popularity_penalty
     )
     
     # Add average loss and RMSE
@@ -289,7 +305,7 @@ def test(model, test_loader, device, top_k, model_type, num_items, user_map):
     
     return metrics
 
-def calculate_global_metrics(top_k_items, top_k_scores, ground_truth, top_k, num_items):
+def calculate_global_metrics(top_k_items, top_k_scores, ground_truth, top_k, num_items, popularity_penalty):
     n_users = len(top_k_items)
     precisions = []
     recalls = []
@@ -299,6 +315,19 @@ def calculate_global_metrics(top_k_items, top_k_scores, ground_truth, top_k, num
     # For ROC AUC calculation
     all_true = np.zeros((n_users, num_items))
     all_pred = np.zeros((n_users, num_items))
+    
+    # Modify recommendation diversity by penalizing popular items
+    item_counts = {}
+    for items in top_k_items:
+        for item in items:
+            item_counts[item] = item_counts.get(item, 0) + 1
+            
+    # Add popularity penalty to scores
+    for i, scores in enumerate(top_k_scores):
+        # Only penalize the top-k items
+        popularity_values = np.array([item_counts.get(item, 0) / len(top_k_items) for item in top_k_items[i][:top_k]])
+        scores[:top_k] = scores[:top_k] - popularity_penalty * popularity_values
+        top_k_scores[i] = scores
     
     for i, (items, scores, truth) in enumerate(zip(top_k_items, top_k_scores, ground_truth)):
         # Ensure arrays are 1D
@@ -336,9 +365,24 @@ def calculate_global_metrics(top_k_items, top_k_scores, ground_truth, top_k, num
             'roc_auc': 0.5
         }
     
-    # Calculate ROC AUC
+    # Calculate ROC AUC using raw scores instead of binary predictions
     try:
-        roc_auc = roc_auc_score(all_true.flatten(), all_pred.flatten())
+        # Flatten and combine all predictions and ground truth
+        all_true_flat = all_true.flatten()
+        all_pred_flat = all_pred.flatten()
+        
+        # Only consider items that have either a prediction or are in ground truth
+        mask = (all_true_flat > 0) | (all_pred_flat > 0)
+        if mask.sum() > 0:
+            all_true_flat = all_true_flat[mask]
+            all_pred_flat = all_pred_flat[mask]
+            
+            if len(np.unique(all_true_flat)) >= 2:
+                roc_auc = roc_auc_score(all_true_flat, all_pred_flat)
+            else:
+                roc_auc = 0.5
+        else:
+            roc_auc = 0.5
     except ValueError:
         logger.warning("ROC AUC calculation failed, defaulting to 0.5")
         roc_auc = 0.5

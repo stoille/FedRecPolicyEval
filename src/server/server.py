@@ -19,6 +19,9 @@ def server_fn(context: Context) -> ServerApp:
     local_epochs = context.run_config["local-epochs"]
     top_k = context.run_config["top-k"]
     learning_rate = str(context.run_config["learning-rate"]).replace('.', '')
+    temperature = context.run_config["temperature"]
+    negative_penalty = str(context.run_config["negative-penalty"]).replace('.', '')
+    popularity_penalty = str(context.run_config["popularity-penalty"]).replace('.', '')
     
     # Load data with dimensions
     trainloader, _, dimensions = load_data(model_type=model_type)
@@ -44,8 +47,12 @@ def server_fn(context: Context) -> ServerApp:
         initial_parameters=ndarrays_to_parameters(get_weights(model)),
     )
     
-    # Update plot filename with client count after training
-    plot_filename = f"{model_type}_{num_rounds}-rounds_{local_epochs}-epochs_{top_k}-topk_{learning_rate}-lr"
+    # Update plot filename with hyperparameters
+    plot_filename = (
+        f"{model_type}_{num_rounds}-rounds_{local_epochs}-epochs_{top_k}-topk"
+        f"_{learning_rate}-lr_{temperature}-temp_{negative_penalty}-negpen"
+        f"_{popularity_penalty}-poppen"
+    )
     def on_exit():
         plot_metrics_from_files(
             'train_history.json',
