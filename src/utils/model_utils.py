@@ -17,31 +17,32 @@ def get_recommendations(model, user_vector, user_id, top_k, device, temperature,
     model.eval()
     with torch.no_grad():
         if isinstance(model, MatrixFactorization):
-            # Ensure user_id is properly formatted
             user_id = torch.tensor([user_id]).to(device)
-            # Generate predictions for all items
             item_ids = torch.arange(model.item_factors.num_embeddings).to(device)
             user_ids = user_id.repeat(len(item_ids))
             
-            # Get predictions
             predictions = model(user_ids, item_ids)
             
-            # Mask out items the user has already interacted with
+            # Add exploration term based on item embeddings similarity
+            item_embeds = model.item_factors.weight
+            item_sims = torch.matmul(item_embeds, item_embeds.t())
+            item_sims = torch.softmax(item_sims / temperature, dim=1)
+            
+            # Diversify predictions based on embedding similarities
+            diversity_bonus = -negative_penalty * item_sims.mean(dim=1)
+            item_scores = predictions + diversity_bonus
+            
+            # Mask interacted items if user_vector provided
             if user_vector is not None:
-                user_vector = user_vector.to(device)
                 interacted_mask = user_vector > 0
-                predictions[interacted_mask] = float('-inf')
+                item_scores[interacted_mask] = float('-inf')
+                
+                # Add randomness for exploration
+                noise = torch.randn_like(item_scores) * (1.0 / (temperature + 1e-8))
+                item_scores += noise
             
-            # Add temperature scaling for softer predictions
-            predictions = predictions / temperature
-            
-            # Add simple negative sampling
-            if user_vector is not None:
-                negative_items = torch.randint(0, model.item_factors.num_embeddings, (top_k,))
-                predictions[negative_items] -= negative_penalty
-            
-            # Get top-k items
-            values, indices = torch.topk(predictions, k=top_k)
+            # Get top-k items with diversity bonus
+            values, indices = torch.topk(item_scores, k=top_k)
             return indices.cpu().numpy(), predictions.cpu().numpy()
         else:
             user_vector = user_vector.to(device)

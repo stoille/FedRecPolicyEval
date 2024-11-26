@@ -292,7 +292,8 @@ def test(model, test_loader, device, top_k, model_type, num_items, user_map, tem
         all_ground_truth,
         top_k,
         num_items,
-        popularity_penalty
+        popularity_penalty,
+        model_type
     )
     
     # Add average loss and RMSE
@@ -305,7 +306,7 @@ def test(model, test_loader, device, top_k, model_type, num_items, user_map, tem
     
     return metrics
 
-def calculate_global_metrics(top_k_items, top_k_scores, ground_truth, top_k, num_items, popularity_penalty):
+def calculate_global_metrics(top_k_items, top_k_scores, ground_truth, top_k, num_items, popularity_penalty, model_type="MF"):
     n_users = len(top_k_items)
     precisions = []
     recalls = []
@@ -387,11 +388,31 @@ def calculate_global_metrics(top_k_items, top_k_scores, ground_truth, top_k, num
         logger.warning("ROC AUC calculation failed, defaulting to 0.5")
         roc_auc = 0.5
     
+    # Track unique recommendations differently for each model type
+    if model_type == "MF":
+        # For MF, actively promote diversity
+        all_recommended = set()
+        item_counts = {}
+        for items in top_k_items:
+            all_recommended.update(items)
+            for item in items:
+                item_counts[item] = item_counts.get(item, 0) + 1
+                
+        # Adjust scores based on popularity for MF only
+        for i, scores in enumerate(top_k_scores):
+            popularity_values = np.array([item_counts.get(item, 0) / len(top_k_items) for item in top_k_items[i]])
+            top_k_scores[i] = scores - popularity_penalty * popularity_values
+    else:  # VAE case
+        # VAE has natural diversity, just track unique items
+        all_recommended = set(np.concatenate(top_k_items))
+    
+    coverage = len(all_recommended) / num_items
+
     return {
         'precision_at_k': np.mean(precisions),
         'recall_at_k': np.mean(recalls),
         'ndcg_at_k': np.mean(ndcgs),
-        'coverage': len(all_recommended) / num_items,
+        'coverage': coverage,
         'roc_auc': roc_auc
     }
 
