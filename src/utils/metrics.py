@@ -35,7 +35,7 @@ class MetricsLogger:
             'roc_auc': [],
             'rounds': []
         }
-        self.current_round = 0  # Start from 0
+        self.current_round = 0
         
     def log_metrics(self, metrics, is_training=True):
         history = self.train_history if is_training else self.test_history
@@ -45,7 +45,6 @@ class MetricsLogger:
             for key in metrics:
                 if key in history and metrics[key] is not None:
                     history[key].append(metrics[key])
-            # Don't increment rounds for training metrics
         else:
             # For test metrics, increment round first
             self.current_round += 1
@@ -54,19 +53,6 @@ class MetricsLogger:
             for key in metrics:
                 if key in history and metrics[key] is not None:
                     history[key].append(metrics[key])
-        
-        self._save_histories()
-
-    def _save_histories(self):
-        try:
-            # Save histories
-            with open('train_history.json', 'w') as f:
-                json.dump(self.train_history, f)
-            with open('test_history.json', 'w') as f:
-                json.dump(self.test_history, f)
-            
-        except Exception as e:
-            logger.error(f"Error saving histories: {str(e)}")
 
 # Create global metrics logger
 metrics_logger = MetricsLogger()
@@ -103,6 +89,7 @@ def compute_metrics(model, batch, top_k, total_items, device, user_map, temperat
         all_recommended_items.append(top_k_items)
 
     coverage = len(set(np.concatenate(all_recommended_items))) / total_items
+    print(f"Coverage: {coverage}")
     
     return {
         "precision_at_k": np.mean(precisions),
@@ -114,11 +101,6 @@ def compute_metrics(model, batch, top_k, total_items, device, user_map, temperat
 
 def calculate_recommendation_metrics(top_k_items, relevant_items, top_k, total_items):
     hits_arr = np.isin(top_k_items, relevant_items)
-    logger.info(f"Hits array: {hits_arr}")
-    
-    # Debug logging to understand the values
-    #logger.info(f"Top-k items selected: {top_k_items[:5]}")  # Will show indices
-    #logger.info(f"Relevant items: {relevant_items[:5]}")  # Ground truth indices
     
     hits = hits_arr.sum()
     logger.info(f"Hits = hits_arr.sum() = {hits}")
@@ -233,78 +215,65 @@ def train(model, train_loader, optimizer, device, epochs, model_type: str):
     return avg_metrics
 
 def test(model, test_loader, device, top_k, model_type, num_items, user_map, temperature, negative_penalty, popularity_penalty):
+    """Test the model and return metrics."""
     model.eval()
-    total_loss = 0.0
-    total_rmse = 0.0
-    num_batches = 0
-    all_top_k_items = []
-    all_top_k_scores = []
-    all_ground_truth = []
-    
-    def process_recommendations(user_id, user_vector, ground_truth, model_type):
-        try:
-            top_k_items, all_scores = get_recommendations(
-                model, 
-                user_vector, 
-                user_id, 
-                top_k, 
-                device,
-                temperature,
-                negative_penalty
-            )
-            all_top_k_items.append(top_k_items)
-            all_top_k_scores.append(all_scores)
-            all_ground_truth.append(ground_truth)
-        except Exception as e:
-            logger.error(f"Error processing {model_type} user {user_id}: {str(e)}")
+    test_loss = 0.0
+    test_rmse = 0.0
+    all_precisions = []
+    all_recalls = []
+    all_ndcgs = []
+    all_coverages = []
+    recommended_items = set()
     
     with torch.no_grad():
-        for batch_idx, batch in enumerate(test_loader):
-            if isinstance(model, MatrixFactorization):
-                user_ids, item_ids, ratings = [b.to(device) for b in batch]
-                predictions = model(user_ids, item_ids)
-                loss = torch.nn.MSELoss()(predictions, ratings)
-                
-                for i in range(len(user_ids)):
-                    user_id = user_ids[i].item()
-                    ground_truth = item_ids[i][ratings[i] > 0].cpu().numpy()
-                    process_recommendations(user_id, None, ground_truth, "MF")
-            
-            else:  # VAE case
+        for batch in test_loader:
+            # Move batch to device
+            if isinstance(batch, torch.Tensor):
                 batch = batch.to(device)
-                recon_batch, mu, logvar = model(batch)
-                loss = model.loss_function(recon_batch, batch, mu, logvar)
-                
-                for i in range(batch.size(0)):
-                    user_vector = batch[i]
-                    ground_truth = torch.nonzero(user_vector).squeeze().cpu().numpy()
-                    process_recommendations(None, user_vector, ground_truth, "VAE")
+            elif isinstance(batch, (list, tuple)):
+                batch = [b.to(device) for b in batch]
             
-            rmse = torch.sqrt(loss)
-            total_loss += loss.item()
-            total_rmse += rmse.item()
-            num_batches += 1
+            # Get recommendations and compute metrics
+            metrics = compute_metrics(
+                model, batch, top_k, num_items, device, user_map, 
+                temperature, negative_penalty
+            )
+            
+            # Extract metrics
+            all_precisions.append(metrics['precision_at_k'])
+            all_recalls.append(metrics['recall_at_k'])
+            all_ndcgs.append(metrics['ndcg_at_k'])
+            all_coverages.append(metrics['coverage'])
+            
+            # Compute loss and RMSE
+            if model_type == "vae":
+                recon_batch, mu, logvar = model(batch)
+                loss = loss_function(recon_batch, batch, mu, logvar)
+                rmse = torch.sqrt(F.mse_loss(recon_batch, batch))
+            else:
+                output = model(batch)
+                loss = F.mse_loss(output, batch)
+                rmse = torch.sqrt(loss)
+            
+            test_loss += loss.item()
+            test_rmse += rmse.item()
     
-    # Calculate metrics
-    metrics = calculate_global_metrics(
-        np.array(all_top_k_items),
-        np.array(all_top_k_scores),
-        all_ground_truth,
-        top_k,
-        num_items,
-        popularity_penalty,
-        model_type
-    )
+    # Average metrics
+    avg_test_loss = test_loss / len(test_loader)
+    avg_test_rmse = test_rmse / len(test_loader)
+    avg_precision = np.mean(all_precisions) if all_precisions else 0.0
+    avg_recall = np.mean(all_recalls) if all_recalls else 0.0
+    avg_ndcg = np.mean(all_ndcgs) if all_ndcgs else 0.0
+    coverage = np.mean(all_coverages) if all_coverages else 0.0
     
-    # Add average loss and RMSE
-    metrics.update({
-        'test_loss': total_loss / num_batches if num_batches > 0 else float('inf'),
-        'test_rmse': total_rmse / num_batches if num_batches > 0 else float('inf')
-    })
-    
-    metrics_logger.log_metrics(metrics, is_training=False)
-    
-    return metrics
+    return {
+        'test_loss': avg_test_loss,
+        'test_rmse': avg_test_rmse,
+        'precision_at_k': avg_precision,
+        'recall_at_k': avg_recall,
+        'ndcg_at_k': avg_ndcg,
+        'coverage': coverage
+    }
 
 def calculate_global_metrics(top_k_items, top_k_scores, ground_truth, top_k, num_items, popularity_penalty, model_type="MF"):
     n_users = len(top_k_items)
@@ -556,3 +525,19 @@ def compute_roc_auc(model, batch, device):
     except Exception as e:
         logger.warning(f"ROC AUC calculation failed: {str(e)}")
         return 0.5
+
+def update_histories(histories: Dict, metrics: Dict, phase: str = 'train') -> None:
+    """Update consolidated histories with new metrics."""
+    history_key = f'{phase}_history'
+    
+    if phase == 'train':
+        if 'train_loss' in metrics:
+            histories[history_key]['train_loss'].append(metrics['train_loss'])
+        if 'train_rmse' in metrics:
+            histories[history_key]['train_rmse'].append(metrics['train_rmse'])
+        if 'rounds' in metrics:
+            histories[history_key]['rounds'].append(metrics['rounds'])
+    else:  # test
+        for key in ['test_loss', 'test_rmse', 'precision_at_k', 'recall_at_k', 'ndcg_at_k', 'coverage']:
+            if key in metrics:
+                histories[history_key][key].append(metrics[key])

@@ -1,15 +1,22 @@
 from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
+
 from flwr.common import (
     FitRes,
     MetricsAggregationFn,
     NDArrays,
     Parameters,
     Scalar,
-    EvaluateRes
+    EvaluateRes,
+    parameters_to_ndarrays,
+    ndarrays_to_parameters
 )
 from flwr.server.client_proxy import ClientProxy
 from flwr.server.strategy import FedAvg
+from flwr.common import Metrics
+import logging
+
+logger = logging.getLogger("Strategy")
 
 class CustomFedAvg(FedAvg):
     """Customized Federated Averaging strategy with metrics tracking."""
@@ -29,7 +36,8 @@ class CustomFedAvg(FedAvg):
         initial_parameters: Optional[Parameters] = None,
         fit_metrics_aggregation_fn: Optional[MetricsAggregationFn] = None,
         evaluate_metrics_aggregation_fn: Optional[MetricsAggregationFn] = None,
-        model_type: str = "vae"
+        model_type: str = "vae",
+        histories: Dict = {}
     ) -> None:
         super().__init__(
             fraction_fit=fraction_fit,
@@ -49,6 +57,7 @@ class CustomFedAvg(FedAvg):
         self.model_type = model_type
         self.current_round = 0
         self.num_clients = 0
+        self.histories = histories
 
     def aggregate_fit(
         self,
@@ -60,24 +69,38 @@ class CustomFedAvg(FedAvg):
         if not results:
             return None, {}
         
-        if self.model_type == "mf":
-            # Matrix Factorization might need special handling for sparse gradients
-            parameters_aggregated, metrics_aggregated = self.aggregate_mf_parameters(
-                results
-            )
-        else:
-            # Use default FedAvg for VAE
-            parameters_aggregated, metrics_aggregated = super().aggregate_fit(
-                rnd, results, failures
-            )
+        parameters_aggregated, _ = super().aggregate_fit(rnd, results, failures)
 
-        # Collect train_loss from client metrics
-        train_losses = [fit_res.metrics['train_loss'] for _, fit_res in results if 'train_loss' in fit_res.metrics]
-        avg_train_loss = sum(train_losses) / len(train_losses) if train_losses else 0.0
-
-        # Record the average train_loss
-        self.history['train_loss'].append(avg_train_loss)
-
+        # Manually aggregate metrics from all clients
+        metrics_aggregated = {}
+        num_clients = len(results)
+        
+        # Log raw metrics first
+        logger.info(f"Round {rnd} - Raw client metrics:")
+        for _, fit_res in results:
+            logger.info(f"Client metrics: {fit_res.metrics}")
+            
+            # Sum up metrics across clients
+            for metric_name, value in fit_res.metrics.items():
+                if metric_name not in metrics_aggregated:
+                    metrics_aggregated[metric_name] = 0.0
+                metrics_aggregated[metric_name] += float(value)
+        
+        # Average the metrics
+        metrics_aggregated = {k: v / num_clients for k, v in metrics_aggregated.items()}
+        
+        logger.info(f"Round {rnd} - Aggregated metrics: {metrics_aggregated}")
+        
+        # Update metrics and history
+        for metric in ['ut_norm', 'likable_prob', 'nonlikable_prob', 'correlated_mass']:
+            if metric in metrics_aggregated:
+                self.histories['metrics'][metric].append(metrics_aggregated[metric])
+        
+        for metric in ['train_loss', 'train_rmse']:
+            if metric in metrics_aggregated:
+                self.histories['history'][metric].append(metrics_aggregated[metric])
+        
+        self.histories['history']['rounds'].append(rnd)
         return parameters_aggregated, metrics_aggregated
 
     def aggregate_evaluate(
@@ -86,38 +109,34 @@ class CustomFedAvg(FedAvg):
         results: List[Tuple[ClientProxy, EvaluateRes]],
         failures: List[BaseException],
     ) -> Tuple[Optional[float], Dict[str, Scalar]]:
-        """Aggregate evaluation results from clients."""
+        """Aggregate evaluation results."""
         if not results:
             return None, {}
 
-        # Call aggregate_evaluate from parent class
-        aggregated, metrics = super().aggregate_evaluate(rnd, results, failures)
-
-        # Get metrics from all clients
-        metrics_list = [(res.num_examples, res.metrics) for _, res in results]
+        # Log received evaluation metrics
+        logger.info(f"Round {rnd} - Received evaluation metrics:")
+        metrics_aggregated = {}
+        num_clients = len(results)
         
-        # Update num_clients based on actual results length
-        self.num_clients = len(results)
-
-        # Rest of the aggregation code...
-        aggregated_metrics = {}
-        total_examples = sum([num_examples for num_examples, _ in metrics_list])
-
-        # Aggregate metrics weighted by number of examples
-        for _, m in metrics_list:
-            for key in m:
-                if key not in aggregated_metrics:
-                    aggregated_metrics[key] = 0
-                aggregated_metrics[key] += m[key] * total_examples
-
-        # Normalize metrics
-        for key in aggregated_metrics:
-            aggregated_metrics[key] /= total_examples
-
-        # Store in history
-        self.history[rnd] = aggregated_metrics
+        for _, eval_res in results:
+            logger.info(f"Client evaluation metrics: {eval_res.metrics}")
+            # Sum up metrics across clients
+            for metric_name, value in eval_res.metrics.items():
+                if metric_name not in metrics_aggregated:
+                    metrics_aggregated[metric_name] = 0.0
+                metrics_aggregated[metric_name] += float(value)
         
-        return aggregated, metrics
+        # Average the metrics
+        metrics_aggregated = {k: v / num_clients for k, v in metrics_aggregated.items()}
+        logger.info(f"Round {rnd} - Aggregated evaluation metrics: {metrics_aggregated}")
+        
+        # Update test history
+        for key in ['test_loss', 'test_rmse', 'precision_at_k', 'recall_at_k', 'ndcg_at_k', 'coverage']:
+            if key in metrics_aggregated:
+                self.histories['history'][key].append(float(metrics_aggregated[key]))
+                logger.info(f"Updated {key} history: {self.histories['history'][key]}")
+        
+        return float(metrics_aggregated.get("test_loss", 0.0)), metrics_aggregated
 
     def aggregate_mf_parameters(
         self,

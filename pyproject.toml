@@ -23,13 +23,18 @@ serverapp = "src.server:app"
 clientapp = "src.client:app"
 
 [tool.flwr.app.config]
-num-server-rounds = 5
-local-epochs = 50
-learning-rate = 0.001
-top-k = 20
-num-items = 3706 # old value for ml-latest-small: 9724
 model-type = "vae"
-num-users = 2 # for mf; must be same as num-supernodes
+num-server-rounds = 3
+local-epochs = 5
+top-k = 10
+learning-rate = 0.0001
+temperature = 0.5
+negative-penalty = 0.2
+popularity-penalty = 0.1
+beta = 0.01
+gamma = 0.01
+learning-rate-schedule = "constant"
+preference-init-scale = 0.3
 
 [tool.flwr.federations]
 default = "local-simulation"
@@ -39,3 +44,11 @@ options.num-supernodes = 2
 
 [tool.flwr.app]
 publisher = "mlacay@berkeley.edu"
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: mark a test as an integration test",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:tensorflow.*"
+]
