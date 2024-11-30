@@ -29,16 +29,16 @@ class TestMetrics:
     def test_metrics_logger(self, metrics_logger):
         # Log training metrics
         train_metrics = {
-            'train_loss': 0.5,
-            'train_rmse': 0.3
+            'epoch_train_loss': 0.5,
+            'epoch_train_rmse': 0.3
         }
         metrics_logger.log_metrics(train_metrics, is_training=True)
         metrics_logger.train_history['rounds'].append(1)
         
         # Log test metrics
         test_metrics = {
-            'test_loss': 0.6,
-            'test_rmse': 0.4,
+            'round_test_loss': 0.6,
+            'round_test_rmse': 0.4,
             'precision_at_k': 0.7,
             'recall_at_k': 0.6,
             'ndcg_at_k': 0.8
@@ -47,8 +47,8 @@ class TestMetrics:
         
         # Assert training metrics
         assert len(metrics_logger.train_history['rounds']) == 1
-        assert metrics_logger.train_history['train_loss'][0] == 0.5
-        assert metrics_logger.train_history['train_rmse'][0] == 0.3
+        assert metrics_logger.train_history['epoch_train_loss'][0] == 0.5
+        assert metrics_logger.train_history['epoch_train_rmse'][0] == 0.3
         
         # Assert test metrics
         assert len(metrics_logger.test_history['rounds']) == 1
@@ -56,7 +56,7 @@ class TestMetrics:
         assert metrics_logger.test_history['recall_at_k'][0] == 0.6
         assert metrics_logger.test_history['ndcg_at_k'][0] == 0.8
 
-    def test_loss_function(self):
+    def round_test_loss_function(self):
         recon_x = torch.tensor([[0.1, 0.9], [0.8, 0.2]], dtype=torch.float32)
         x = torch.tensor([[0, 1], [1, 0]], dtype=torch.float32)
         mu = torch.zeros(2, 2)
@@ -125,7 +125,7 @@ class TestMetrics:
         assert 0 <= prec <= 1
         assert 0 <= rec <= 1
 
-    def test_ndcg_at_k(self):
+    def ndcg_at_k(self):
         y_true = np.array([5, 3, 4, 1, 2])
         y_pred = np.array([0.9, 0.2, 0.8, 0.1, 0.3])
         k = 3

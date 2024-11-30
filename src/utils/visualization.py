@@ -11,70 +11,71 @@ logger = logging.getLogger("Visualization")
 def plot_metrics_from_file(history_file: str):
     """Plot all metrics from a consolidated history file."""
     with open(history_file, 'r') as f:
-        histories = json.load(f)
+        data = json.load(f)
     
     base_filename = os.path.splitext(os.path.basename(history_file))[0]
     output_dir = os.path.join("plots")
     os.makedirs(output_dir, exist_ok=True)
     
-    # Create a single large figure with 3x2 subplots
     fig, axs = plt.subplots(3, 2, figsize=(15, 18))
-    history = histories['history']  # Use consolidated history
+    metrics = data['metrics']
     
     # Training plots (top row)
-    if history.get('train_loss'):
-        axs[0, 0].plot(history['train_loss'], label='Training Loss')
+    if 'epoch_train_loss' in metrics:
+        rounds = range(1, len(metrics['epoch_train_loss']) + 1)
+        axs[0, 0].plot(rounds, metrics['epoch_train_loss'], label='Training Loss')
         axs[0, 0].set_title('Training Loss')
         axs[0, 0].set_xlabel('Rounds')
         axs[0, 0].set_ylabel('Loss')
         axs[0, 0].legend()
     
-    if history.get('train_rmse'):
-        axs[0, 1].plot(history['train_rmse'], label='Training RMSE')
+    if 'epoch_train_rmse' in metrics:
+        rounds = range(1, len(metrics['epoch_train_rmse']) + 1)
+        axs[0, 1].plot(rounds, metrics['epoch_train_rmse'], label='Training RMSE')
         axs[0, 1].set_title('Training RMSE')
         axs[0, 1].set_xlabel('Rounds')
         axs[0, 1].set_ylabel('RMSE')
         axs[0, 1].legend()
     
     # Test plots (middle row)
-    if history.get('test_rmse'):
-        axs[1, 0].plot(history['test_rmse'], label='Test RMSE')
+    if 'test_rmse' in metrics:
+        rounds = range(1, len(metrics['test_rmse']) + 1)
+        axs[1, 0].plot(rounds, metrics['test_rmse'], label='Test RMSE')
         axs[1, 0].set_title('Test RMSE')
         axs[1, 0].set_xlabel('Rounds')
         axs[1, 0].set_ylabel('RMSE')
         axs[1, 0].legend()
     
     # Recommendation metrics
-    metrics_to_plot = ['precision_at_k', 'recall_at_k', 'ndcg_at_k', 'coverage']
+    metrics_to_plot = ['test_precision_at_k', 'test_recall_at_k', 'test_ndcg_at_k', 'test_coverage']
     for metric in metrics_to_plot:
-        if metric in history:
-            axs[1, 1].plot(history[metric], label=metric.replace('_', ' ').title())
+        if metric in metrics:
+            rounds = range(1, len(metrics[metric]) + 1)
+            axs[1, 1].plot(rounds, metrics[metric], label=metric.replace('test_', '').replace('_', ' ').title())
     axs[1, 1].set_title('Recommendation Metrics')
     axs[1, 1].set_xlabel('Rounds')
     axs[1, 1].set_ylabel('Value')
     axs[1, 1].legend()
     
     # Preference evolution metrics (bottom row)
-    if 'metrics' in histories:
-        metrics = histories['metrics']
+    if 'test_ut_norm' in metrics:
+        rounds = range(1, len(metrics['test_ut_norm']) + 1)
+        axs[2, 0].plot(rounds, metrics['test_ut_norm'], label='User Preference Norm')
+        axs[2, 0].set_title('User Preference Norm')
+        axs[2, 0].set_xlabel('Rounds')
+        axs[2, 0].set_ylabel('Norm')
+        axs[2, 0].legend()
         
-        if 'ut_norm' in metrics:
-            axs[2, 0].plot(metrics['ut_norm'], label='User Preference Norm')
-            axs[2, 0].set_title('User Preference Norm')
-            axs[2, 0].set_xlabel('Rounds')
-            axs[2, 0].set_ylabel('Norm')
-            axs[2, 0].legend()
-        
-        if 'likable_prob' in metrics and 'nonlikable_prob' in metrics:
-            axs[2, 1].plot(metrics['likable_prob'], label='Likable Items')
-            axs[2, 1].plot(metrics['nonlikable_prob'], label='Non-likable Items')
+        if 'test_likable_prob' in metrics and 'test_nonlikable_prob' in metrics:
+            axs[2, 1].plot(rounds, metrics['test_likable_prob'], label='Likable Items')
+            axs[2, 1].plot(rounds, metrics['test_nonlikable_prob'], label='Non-likable Items')
             axs[2, 1].set_title('Item Type Probabilities')
             axs[2, 1].set_xlabel('Rounds')
             axs[2, 1].set_ylabel('Probability')
             axs[2, 1].legend()
     
     plt.tight_layout()
-    plt.savefig(f"{output_dir}/plot_{base_filename}.png")
+    plt.savefig(f"{output_dir}/{base_filename}.png")
     plt.close()
 
-    logger.info(f"Saved plot to {output_dir}/plot_{base_filename}.png")
+    logger.info(f"Saved plot to {output_dir}/{base_filename}.png")

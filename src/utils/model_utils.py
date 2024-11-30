@@ -14,6 +14,7 @@ def set_weights(net, parameters):
     net.load_state_dict(state_dict, strict=True)
 
 def get_recommendations(model, user_vector, user_id, top_k, device, temperature, negative_penalty):
+    #logger.info("Starting get_recommendations")
     model.eval()
     with torch.no_grad():
         if isinstance(model, MatrixFactorization):
@@ -44,10 +45,15 @@ def get_recommendations(model, user_vector, user_id, top_k, device, temperature,
             # Get top-k items with diversity bonus
             values, indices = torch.topk(item_scores, k=top_k)
             return indices.cpu().numpy(), predictions.cpu().numpy()
-        else:
+        else:  # VAE case
+            #logger.info(f"Processing VAE recommendations for user_vector shape: {user_vector.shape}")
             user_vector = user_vector.to(device)
             recon_vector, _, _ = model(user_vector.unsqueeze(0))
             recon_vector = recon_vector.squeeze(0)
+            
+            # Log reconstruction values
+            #logger.info(f"Reconstruction vector stats - min: {recon_vector.min():.4f}, max: {recon_vector.max():.4f}, mean: {recon_vector.mean():.4f}")
+            
             _, indices = torch.topk(recon_vector, top_k)
             return indices.cpu().numpy(), recon_vector.cpu().numpy()
 
@@ -56,13 +62,13 @@ def train(net, trainloader, epochs, learning_rate, device, total_items):
     optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate, weight_decay=1e-5)
     net.train()
     
-    total_train_loss = 0.0
+    total_epoch_train_loss = 0.0
     for epoch in range(epochs):
         epoch_loss = train_epoch(net, trainloader, optimizer, epoch, epochs, device)
         print(f"Epoch {epoch+1}/{epochs}, Loss: {epoch_loss/len(trainloader)}")
-        total_train_loss += epoch_loss
+        total_epoch_train_loss += epoch_loss
         
-    return {"train_loss": float(total_train_loss / (len(trainloader.dataset) * epochs))}
+    return {"epoch_train_loss": float(total_epoch_train_loss / (len(trainloader.dataset) * epochs))}
 
 def train_epoch(net, trainloader, optimizer, epoch, epochs, device):
     epoch_loss = 0.0

@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from src.utils.model_utils import get_recommendations
 import logging
 import sys
-from typing import Dict
+from typing import Dict, List
 import atexit
 from sklearn.metrics import roc_auc_score
 import json
@@ -21,13 +21,13 @@ logger = logging.getLogger("Metrics")
 class MetricsLogger:
     def __init__(self):
         self.train_history = {
-            'train_loss': [],
-            'train_rmse': [],
+            'epoch_train_loss': [],
+            'epoch_train_rmse': [],
             'rounds': []
         }
         self.test_history = {
-            'test_loss': [],
-            'test_rmse': [],
+            'round_test_loss': [],
+            'round_test_rmse': [],
             'precision_at_k': [],
             'recall_at_k': [],
             'ndcg_at_k': [],
@@ -58,6 +58,14 @@ class MetricsLogger:
 metrics_logger = MetricsLogger()
 
 def compute_metrics(model, batch, top_k, total_items, device, user_map, temperature, negative_penalty):
+    metrics = {}
+    
+    # Get user preference vectors
+    if isinstance(model, MatrixFactorization):
+        ut_vector = model.user_factors.weight.data.clone().cpu().numpy()
+    else:  # VAE
+        ut_vector = model.encoder[0].weight.data.clone().cpu().numpy()
+    
     precisions, recalls, ndcgs, roc_aucs = [], [], [], []
     all_recommended_items = []
 
@@ -74,53 +82,56 @@ def compute_metrics(model, batch, top_k, total_items, device, user_map, temperat
         )
         interacted_items = user_vector.nonzero(as_tuple=True)[0]
         relevant_items = interacted_items.cpu().numpy()
-        logger.info(f"Top-k items: {top_k_items}")
-        logger.info(f"Relevant items: {relevant_items}")
+        #logger.info(f"Top-k items: {top_k_items}")
+        #logger.info(f"Relevant items: {relevant_items}")
         
         metrics = calculate_recommendation_metrics(
             top_k_items, relevant_items, top_k, total_items
         )
         
-        precisions.append(metrics['precision'])
-        recalls.append(metrics['recall'])
-        ndcgs.append(metrics['ndcg'])
+        precisions.append(metrics['precision_at_k'])
+        recalls.append(metrics['recall_at_k'])
+        ndcgs.append(metrics['ndcg_at_k'])
         if metrics.get('roc_auc'):
             roc_aucs.append(metrics['roc_auc'])
-        all_recommended_items.append(top_k_items)
+        all_recommended_items.extend(top_k_items)
 
-    coverage = len(set(np.concatenate(all_recommended_items))) / total_items
-    print(f"Coverage: {coverage}")
+    # Calculate coverage as unique items / total items
+    coverage = len(set(all_recommended_items)) / total_items
     
     return {
-        "precision_at_k": np.mean(precisions),
-        "recall_at_k": np.mean(recalls),
-        "ndcg_at_k": np.mean(ndcgs),
-        "roc_auc": np.mean(roc_aucs) if roc_aucs else None,
-        "coverage": coverage,
+        'precision_at_k': np.mean(precisions),
+        'recall_at_k': np.mean(recalls),
+        'ndcg_at_k': np.mean(ndcgs),
+        'roc_auc': np.mean(roc_aucs) if roc_aucs else None,
+        'coverage': coverage,
+        'test_ut_vector': ut_vector,
+        'test_ut_norm': np.linalg.norm(ut_vector)
     }
 
 def calculate_recommendation_metrics(top_k_items, relevant_items, top_k, total_items):
     hits_arr = np.isin(top_k_items, relevant_items)
     
     hits = hits_arr.sum()
-    logger.info(f"Hits = hits_arr.sum() = {hits}")
+    #logger.info(f"Hits = hits_arr.sum() = {hits}")
     
     overlaps = set(top_k_items) & set(relevant_items)
-    logger.info(f"Overlapping items: {overlaps}")
+    #logger.info(f"Overlapping items: {overlaps}")
     
     precision = hits / top_k
     recall = hits / len(relevant_items) if len(relevant_items) > 0 else 0
-    logger.info(f"Precision = hits / top_k = {hits} / {top_k} = {precision}")
-    logger.info(f"Recall = hits / len(relevant_items) = {hits} / {len(relevant_items)} = {recall}")
+    #logger.info(f"Precision = hits / top_k = {hits} / {top_k} = {precision}")
+    #logger.info(f"Recall = hits / len(relevant_items) = {hits} / {len(relevant_items)} = {recall}")
     
     # Compute NDCG
     dcg = sum([1 / np.log2(i + 2) if top_k_items[i] in relevant_items else 0 
                for i in range(top_k)])
-    logger.info(f"DCG = sum([1 / np.log2(i + 2) if top_k_items[i] in relevant_items else 0 for i in range(top_k)]) = {dcg}")
+    #logger.info(f"DCG = sum([1 / np.log2(i + 2) if top_k_items[i] in relevant_items else 0 for i in range(top_k)]) = {dcg}")
     idcg = sum([1 / np.log2(i + 2) for i in range(min(len(relevant_items), top_k))])
-    logger.info(f"IDCG = sum([1 / np.log2(i + 2) for i in range(min(len(relevant_items), top_k))]) = {idcg}")
+    #logger.info(f"IDCG = sum([1 / np.log2(i + 2) for i in range(min(len(relevant_items), top_k))]) = {idcg}")
     ndcg = dcg / idcg if idcg > 0 else 0.0
-    logger.info(f"NDCG = dcg / idcg = {dcg} / {idcg} = {ndcg}")
+    #logger.info(f"NDCG = dcg / idcg = {dcg} / {idcg} = {ndcg}")
+    #logger.info(f"NDCG = {ndcg}")
     # Compute ROC AUC
     actual = np.zeros(total_items)
     actual[relevant_items] = 1
@@ -130,11 +141,11 @@ def calculate_recommendation_metrics(top_k_items, relevant_items, top_k, total_i
     roc_auc = None
     if len(np.unique(actual)) > 1:
         roc_auc = roc_auc_score(actual, scores)
-    logger.info(f"ROC AUC: {roc_auc}")
+    #logger.info(f"ROC AUC: {roc_auc}")
     return {
-        'precision': precision,
-        'recall': recall,
-        'ndcg': ndcg,
+        'precision_at_k': precision,
+        'recall_at_k': recall,
+        'ndcg_at_k': ndcg,
         'roc_auc': roc_auc
     }
 
@@ -147,6 +158,8 @@ def train(model, train_loader, optimizer, device, epochs, model_type: str):
     # Add annealing for VAE
     beta_start = 0.0
     beta_end = 0.1
+    epoch_losses = []  # Track losses as array
+    epoch_rmses = []   # Track RMSEs as array
     
     for epoch in range(epochs):
         epoch_loss = 0.0
@@ -197,33 +210,33 @@ def train(model, train_loader, optimizer, device, epochs, model_type: str):
         # Average metrics for this epoch
         avg_epoch_loss = epoch_loss / epoch_batches
         avg_epoch_rmse = epoch_rmse / epoch_batches
+        # Append to arrays
+        epoch_losses.append(avg_epoch_loss)
+        epoch_rmses.append(avg_epoch_rmse)
         
         total_loss += avg_epoch_loss
         total_rmse += avg_epoch_rmse
         num_batches += 1
      
         # Log metrics for this epoch
-        metrics_logger.log_metrics({"train_loss": avg_epoch_loss, "train_rmse": avg_epoch_rmse}, is_training=True)   
+        metrics_logger.log_metrics({"epoch_train_loss": avg_epoch_loss, "epoch_train_rmse": avg_epoch_rmse}, is_training=True)   
         logger.info(f"Epoch {epoch+1}/{epochs} | Loss: {avg_epoch_loss:.4f} | RMSE: {avg_epoch_rmse:.4f}")
     
-    # Average metrics across epochs
-    avg_metrics = {
-        "train_loss": total_loss / num_batches,
-        "train_rmse": total_rmse / num_batches
+    # Return metrics dictionary with arrays
+    return {
+        'epoch_train_loss': epoch_losses,
+        'epoch_train_rmse': epoch_rmses
     }
-    
-    return avg_metrics
 
 def test(model, test_loader, device, top_k, model_type, num_items, user_map, temperature, negative_penalty, popularity_penalty):
     """Test the model and return metrics."""
     model.eval()
-    test_loss = 0.0
-    test_rmse = 0.0
+    round_test_loss = 0.0
+    round_test_rmse = 0.0
     all_precisions = []
     all_recalls = []
     all_ndcgs = []
     all_coverages = []
-    recommended_items = set()
     
     with torch.no_grad():
         for batch in test_loader:
@@ -235,11 +248,19 @@ def test(model, test_loader, device, top_k, model_type, num_items, user_map, tem
             
             # Get recommendations and compute metrics
             metrics = compute_metrics(
-                model, batch, top_k, num_items, device, user_map, 
-                temperature, negative_penalty
+                model=model, 
+                batch=batch,
+                top_k=top_k, 
+                total_items=num_items, 
+                device=device, 
+                user_map=user_map, 
+                temperature=temperature, 
+                negative_penalty=negative_penalty
             )
             
-            # Extract metrics
+            #logger.info(f"foo Metrics: {metrics}")
+            
+            # Extract metrics using correct keys
             all_precisions.append(metrics['precision_at_k'])
             all_recalls.append(metrics['recall_at_k'])
             all_ndcgs.append(metrics['ndcg_at_k'])
@@ -255,20 +276,25 @@ def test(model, test_loader, device, top_k, model_type, num_items, user_map, tem
                 loss = F.mse_loss(output, batch)
                 rmse = torch.sqrt(loss)
             
-            test_loss += loss.item()
-            test_rmse += rmse.item()
+            round_test_loss += loss.item()
+            round_test_rmse += rmse.item()
     
     # Average metrics
-    avg_test_loss = test_loss / len(test_loader)
-    avg_test_rmse = test_rmse / len(test_loader)
+    avg_round_test_loss = round_test_loss / len(test_loader)
+    avg_round_test_rmse = round_test_rmse / len(test_loader)
     avg_precision = np.mean(all_precisions) if all_precisions else 0.0
     avg_recall = np.mean(all_recalls) if all_recalls else 0.0
     avg_ndcg = np.mean(all_ndcgs) if all_ndcgs else 0.0
     coverage = np.mean(all_coverages) if all_coverages else 0.0
-    
+    logger.info(f"Avg round test loss: {avg_round_test_loss}")
+    logger.info(f"Avg round test rmse: {avg_round_test_rmse}")
+    logger.info(f"Avg precision: {avg_precision}")
+    logger.info(f"Avg recall: {avg_recall}")
+    logger.info(f"Avg ndcg: {avg_ndcg}")
+    logger.info(f"Coverage: {coverage}")
     return {
-        'test_loss': avg_test_loss,
-        'test_rmse': avg_test_rmse,
+        'test_loss': avg_round_test_loss,
+        'test_rmse': avg_round_test_rmse,
         'precision_at_k': avg_precision,
         'recall_at_k': avg_recall,
         'ndcg_at_k': avg_ndcg,
@@ -531,13 +557,42 @@ def update_histories(histories: Dict, metrics: Dict, phase: str = 'train') -> No
     history_key = f'{phase}_history'
     
     if phase == 'train':
-        if 'train_loss' in metrics:
-            histories[history_key]['train_loss'].append(metrics['train_loss'])
-        if 'train_rmse' in metrics:
-            histories[history_key]['train_rmse'].append(metrics['train_rmse'])
+        if 'epoch_train_loss' in metrics:
+            histories[history_key]['epoch_train_loss'].append(metrics['epoch_train_loss'])
+        if 'epoch_train_rmse' in metrics:
+            histories[history_key]['epoch_train_rmse'].append(metrics['epoch_train_rmse'])
         if 'rounds' in metrics:
             histories[history_key]['rounds'].append(metrics['rounds'])
     else:  # test
-        for key in ['test_loss', 'test_rmse', 'precision_at_k', 'recall_at_k', 'ndcg_at_k', 'coverage']:
+        for key in ['round_test_loss', 'round_test_rmse', 'precision_at_k', 'recall_at_k', 'ndcg_at_k', 'coverage']:
             if key in metrics:
                 histories[history_key][key].append(metrics[key])
+
+def calculate_model_divergence(local_vectors: List[np.ndarray], global_vector: np.ndarray) -> Dict:
+    """Calculate divergence metrics between local and global models."""
+    divergence_metrics = {}
+    
+    # Cosine distances between each local model and global model
+    cosine_distances = []
+    for local_vec in local_vectors:
+        cos_dist = 1 - np.dot(local_vec, global_vector) / (
+            np.linalg.norm(local_vec) * np.linalg.norm(global_vector)
+        )
+        cosine_distances.append(cos_dist)
+    
+    # Pairwise distances between local models
+    pairwise_distances = []
+    for i in range(len(local_vectors)):
+        for j in range(i + 1, len(local_vectors)):
+            cos_dist = 1 - np.dot(local_vectors[i], local_vectors[j]) / (
+                np.linalg.norm(local_vectors[i]) * np.linalg.norm(local_vectors[j])
+            )
+            pairwise_distances.append(cos_dist)
+    
+    divergence_metrics.update({
+        'local_global_divergence': np.mean(cosine_distances),
+        'local_local_divergence': np.mean(pairwise_distances) if pairwise_distances else 0.0,
+        'max_local_divergence': np.max(pairwise_distances) if pairwise_distances else 0.0
+    })
+    
+    return divergence_metrics

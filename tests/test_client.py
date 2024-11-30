@@ -76,10 +76,10 @@ class TestMovieLensClient:
         # Mock the train function to avoid data loading issues
         def mock_train(*args, **kwargs):
             return {
-                'train_loss': 0.5,
-                'test_loss': 0.6,
-                'train_rmse': 0.4,
-                'test_rmse': 0.4,
+                'epoch_train_loss': 0.5,
+                'round_test_loss': 0.6,
+                'epoch_train_rmse': 0.4,
+                'round_test_rmse': 0.4,
                 'precision_at_k': 0.3,
                 'recall_at_k': 0.2,
                 'ndcg_at_k': 0.1,

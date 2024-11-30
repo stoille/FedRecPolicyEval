@@ -7,15 +7,12 @@ class VAE(nn.Module):
         super().__init__()
         self.encoder = nn.Sequential(
             nn.Linear(num_items, 800),
-            nn.BatchNorm1d(800),
             nn.ReLU(),
             nn.Dropout(0.2),
             nn.Linear(800, 600),
-            nn.BatchNorm1d(600),
             nn.ReLU(),
             nn.Dropout(0.2),
             nn.Linear(600, 400),
-            nn.BatchNorm1d(400),
             nn.ReLU(),
         )
         
@@ -24,15 +21,12 @@ class VAE(nn.Module):
         
         self.decoder = nn.Sequential(
             nn.Linear(latent_dim, 400),
-            nn.BatchNorm1d(400),
             nn.ReLU(),
             nn.Dropout(0.2),
             nn.Linear(400, 600),
-            nn.BatchNorm1d(600),
             nn.ReLU(),
             nn.Dropout(0.2),
             nn.Linear(600, 800),
-            nn.BatchNorm1d(800),
             nn.ReLU(),
             nn.Linear(800, num_items),
             nn.Sigmoid()

@@ -1,5 +1,7 @@
 from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
+import json
+import os
 
 from flwr.common import (
     FitRes,
@@ -15,6 +17,8 @@ from flwr.server.client_proxy import ClientProxy
 from flwr.server.strategy import FedAvg
 from flwr.common import Metrics
 import logging
+
+from src.utils import calculate_model_divergence
 
 logger = logging.getLogger("Strategy")
 
@@ -37,7 +41,13 @@ class CustomFedAvg(FedAvg):
         fit_metrics_aggregation_fn: Optional[MetricsAggregationFn] = None,
         evaluate_metrics_aggregation_fn: Optional[MetricsAggregationFn] = None,
         model_type: str = "vae",
-        histories: Dict = {}
+        learning_rate: float = 0.0001,
+        beta: float = 0.01,
+        gamma: float = 0.01,
+        temperature: float = 0.5,
+        negative_penalty: float = 0.2,
+        popularity_penalty: float = 0.1,
+        learning_rate_schedule: str = "constant"
     ) -> None:
         super().__init__(
             fraction_fit=fraction_fit,
@@ -53,54 +63,131 @@ class CustomFedAvg(FedAvg):
             fit_metrics_aggregation_fn=fit_metrics_aggregation_fn,
             evaluate_metrics_aggregation_fn=evaluate_metrics_aggregation_fn,
         )
-        self.history = {'train_loss': []}
         self.model_type = model_type
         self.current_round = 0
         self.num_clients = 0
-        self.histories = histories
+        self.learning_rate = learning_rate
+        self.beta = beta
+        self.gamma = gamma
+        self.temperature = temperature
+        self.negative_penalty = negative_penalty
+        self.popularity_penalty = popularity_penalty
+        self.learning_rate_schedule = learning_rate_schedule
 
     def aggregate_fit(
         self,
-        rnd: int,
+        server_round: int,
         results: List[Tuple[ClientProxy, FitRes]],
-        failures: List[BaseException],
+        failures: List[Union[Tuple[ClientProxy, FitRes], BaseException]],
     ) -> Tuple[Optional[Parameters], Dict[str, Scalar]]:
-        """Aggregate fit results using weighted averaging."""
+        """Aggregate fit results using weighted averaging and custom metrics."""
         if not results:
             return None, {}
-        
-        parameters_aggregated, _ = super().aggregate_fit(rnd, results, failures)
 
-        # Manually aggregate metrics from all clients
+        # Add logging before aggregation
+        logger.info("Raw metrics from clients:")
+        for _, fit_res in results:
+            logger.info(f"Client metrics: {fit_res.metrics}")
+
+        # Aggregate parameters
+        weights_results = [
+            (parameters_to_ndarrays(fit_res.parameters), fit_res.num_examples)
+            for _, fit_res in results
+        ]
+        
+        total_examples = sum([num_examples for _, num_examples in weights_results])
+
+        # Weighted averaging of parameters
+        aggregated_weights = []
+        for weights_list_tuple in zip(*[weights for weights, _ in weights_results]):
+            aggregated_layer = sum(
+                [
+                    (num_examples / total_examples) * layer
+                    for layer, (_, num_examples) in zip(weights_list_tuple, weights_results)
+                ]
+            )
+            aggregated_weights.append(aggregated_layer)
+
+        parameters_aggregated = ndarrays_to_parameters(aggregated_weights)
+
+        # Aggregate metrics
         metrics_aggregated = {}
         num_clients = len(results)
         
-        # Log raw metrics first
-        logger.info(f"Round {rnd} - Raw client metrics:")
         for _, fit_res in results:
-            logger.info(f"Client metrics: {fit_res.metrics}")
-            
-            # Sum up metrics across clients
             for metric_name, value in fit_res.metrics.items():
-                if metric_name not in metrics_aggregated:
-                    metrics_aggregated[metric_name] = 0.0
-                metrics_aggregated[metric_name] += float(value)
-        
+                # Skip non-numeric metrics
+                if isinstance(value, (int, float)):
+                    if metric_name not in metrics_aggregated:
+                        metrics_aggregated[metric_name] = 0.0
+                    metrics_aggregated[metric_name] += float(value)
+
         # Average the metrics
-        metrics_aggregated = {k: v / num_clients for k, v in metrics_aggregated.items()}
+        for name in metrics_aggregated:
+            metrics_aggregated[name] /= num_clients
+
+        # Add logging after aggregation
+        logger.info(f"Aggregated metrics before saving: {metrics_aggregated}")
         
-        logger.info(f"Round {rnd} - Aggregated metrics: {metrics_aggregated}")
+        # Create metrics filename based on parameters
+        metrics_prefix = (
+            f"lr={self.learning_rate}_"
+            f"beta={self.beta}_"
+            f"gamma={self.gamma}_"
+            f"temp={self.temperature}_"
+            f"negpen={self.negative_penalty}_"
+            f"poppen={self.popularity_penalty}_"
+            f"lrsched={self.learning_rate_schedule}"
+        )
         
-        # Update metrics and history
-        for metric in ['ut_norm', 'likable_prob', 'nonlikable_prob', 'correlated_mass']:
-            if metric in metrics_aggregated:
-                self.histories['metrics'][metric].append(metrics_aggregated[metric])
+        metrics_file = f'metrics/rounds_{metrics_prefix}.json'
+        os.makedirs('metrics', exist_ok=True)
         
-        for metric in ['train_loss', 'train_rmse']:
-            if metric in metrics_aggregated:
-                self.histories['history'][metric].append(metrics_aggregated[metric])
+        # Save metrics
+        try:
+            with open(metrics_file, 'r') as f:
+                all_metrics = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            all_metrics = {
+                'config': {
+                    'model': self.model_type,
+                    'lr': self.learning_rate,
+                    'beta': self.beta,
+                    'gamma': self.gamma,
+                    'temp': self.temperature,
+                    'neg_pen': self.negative_penalty,
+                    'pop_pen': self.popularity_penalty,
+                    'lr_schedule': self.learning_rate_schedule
+                },
+                'metrics': {
+                    'train_loss': [],
+                    'train_rmse': [],
+                    'test_loss': [],
+                    'test_rmse': [],
+                    'precision_at_k': [],
+                    'recall_at_k': [],
+                    'ndcg_at_k': [],
+                    'coverage': [],
+                    'test_ut_norm': [],
+                    'test_likable_prob': [],
+                    'test_nonlikable_prob': [],
+                    'test_correlated_mass': []
+                }
+            }
         
-        self.histories['history']['rounds'].append(rnd)
+        # Append new metrics to lists
+        for metric_name, value in metrics_aggregated.items():
+            if metric_name in all_metrics['metrics']:
+                all_metrics['metrics'][metric_name].append(float(value))
+        
+        # Add logging after loading/before saving
+        logger.info(f"Current metrics state: {all_metrics}")
+        logger.info(f"Saving metrics to: {metrics_file}")
+        
+        # Save updated metrics
+        with open(metrics_file, 'w') as f:
+            json.dump(all_metrics, f)
+
         return parameters_aggregated, metrics_aggregated
 
     def aggregate_evaluate(
@@ -113,30 +200,67 @@ class CustomFedAvg(FedAvg):
         if not results:
             return None, {}
 
-        # Log received evaluation metrics
-        logger.info(f"Round {rnd} - Received evaluation metrics:")
-        metrics_aggregated = {}
+        metrics_aggregated = {
+            'test_loss': 0.0,
+            'test_rmse': 0.0,
+            'precision_at_k': 0.0,
+            'recall_at_k': 0.0,
+            'ndcg_at_k': 0.0,
+            'coverage': 0.0,
+            'test_ut_norm': 0.0,
+            'test_likable_prob': 0.0,
+            'test_nonlikable_prob': 0.0,
+            'test_correlated_mass': 0.0
+        }
         num_clients = len(results)
         
         for _, eval_res in results:
-            logger.info(f"Client evaluation metrics: {eval_res.metrics}")
-            # Sum up metrics across clients
-            for metric_name, value in eval_res.metrics.items():
-                if metric_name not in metrics_aggregated:
-                    metrics_aggregated[metric_name] = 0.0
-                metrics_aggregated[metric_name] += float(value)
+            for name, value in eval_res.metrics.items():
+                metrics_aggregated[name] += float(value)
         
         # Average the metrics
-        metrics_aggregated = {k: v / num_clients for k, v in metrics_aggregated.items()}
-        logger.info(f"Round {rnd} - Aggregated evaluation metrics: {metrics_aggregated}")
+        for name in metrics_aggregated:
+            metrics_aggregated[name] /= num_clients
+
+        # Add logging for evaluation metrics
+        logger.info("Raw evaluation metrics from clients:")
+        for _, eval_res in results:
+            logger.info(f"Client eval metrics: {eval_res.metrics}")
+
+        logger.info(f"Aggregated evaluation metrics: {metrics_aggregated}")
         
-        # Update test history
-        for key in ['test_loss', 'test_rmse', 'precision_at_k', 'recall_at_k', 'ndcg_at_k', 'coverage']:
-            if key in metrics_aggregated:
-                self.histories['history'][key].append(float(metrics_aggregated[key]))
-                logger.info(f"Updated {key} history: {self.histories['history'][key]}")
+        # Save metrics using the same file-based approach as aggregate_fit
+        metrics_prefix = (
+            f"lr={self.learning_rate}_"
+            f"beta={self.beta}_"
+            f"gamma={self.gamma}_"
+            f"temp={self.temperature}_"
+            f"negpen={self.negative_penalty}_"
+            f"poppen={self.popularity_penalty}_"
+            f"lrsched={self.learning_rate_schedule}"
+        )
         
-        return float(metrics_aggregated.get("test_loss", 0.0)), metrics_aggregated
+        metrics_file = f'metrics/rounds_{metrics_prefix}.json'
+        
+        try:
+            with open(metrics_file, 'r') as f:
+                all_metrics = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            # File should exist from aggregate_fit, but just in case
+            return float(metrics_aggregated['test_loss']), metrics_aggregated
+        
+        # Append evaluation metrics to existing lists
+        for name, value in metrics_aggregated.items():
+            if name in all_metrics['metrics']:
+                all_metrics['metrics'][name].append(float(value))
+        
+        # Add logging before saving
+        logger.info(f"Final evaluation metrics state: {all_metrics}")
+        
+        with open(metrics_file, 'w') as f:
+            json.dump(all_metrics, f)
+        
+        return float(metrics_aggregated['test_loss']), metrics_aggregated
 
     def aggregate_mf_parameters(
         self,

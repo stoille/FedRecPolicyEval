@@ -12,6 +12,7 @@ import torch
 from src.data import load_data
 import json
 import os
+import glob
 
 def server_fn(context: Context) -> ServerApp:
     """Create server instance with initial parameters."""
@@ -20,72 +21,158 @@ def server_fn(context: Context) -> ServerApp:
     num_rounds = context.run_config["num-server-rounds"]
     local_epochs = context.run_config["local-epochs"]
     top_k = context.run_config["top-k"]
-    learning_rate = str(context.run_config["learning-rate"]).replace('.', '')
-    temperature = context.run_config["temperature"]
-    negative_penalty = str(context.run_config["negative-penalty"]).replace('.', '')
-    popularity_penalty = str(context.run_config["popularity-penalty"]).replace('.', '')
-    beta = str(context.run_config["beta"]).replace('.', '')
-    gamma = str(context.run_config["gamma"]).replace('.', '')
+    learning_rate = str(context.run_config["learning-rate"])
+    temperature = str(context.run_config["temperature"])
+    negative_penalty = str(context.run_config["negative-penalty"])
+    popularity_penalty = str(context.run_config["popularity-penalty"])
+    beta = str(context.run_config["beta"])
+    gamma = str(context.run_config["gamma"])
     learning_rate_schedule = context.run_config["learning-rate-schedule"]
     num_nodes = context.run_config.get("num-nodes", 2)
     
-    # Create history filename based on parameters
-    history_filename = (
-        f"{num_rounds}-rounds_{local_epochs}-epochs_{top_k}-topk"
-        f"_{learning_rate}-lr_{temperature}-temp_{negative_penalty}-negpen"
-        f"_{popularity_penalty}-poppen_{beta}-beta_{gamma}-gamma"
-        f"_{learning_rate_schedule}-lrsched_{num_nodes}-nodes"
+    # Create metrics filename prefix
+    metrics_prefix = (
+        f"lr={learning_rate}_"
+        f"beta={beta}_"
+        f"gamma={gamma}_"
+        f"temp={temperature}_"
+        f"negpen={negative_penalty}_"
+        f"poppen={popularity_penalty}_"
+        f"lrsched={learning_rate_schedule}"
     )
     
-    # Initialize histories
-    histories = {
-        'parameters': {
-            'num_rounds': num_rounds,
-            'local_epochs': local_epochs,
-            'beta': float(context.run_config["beta"]),
-            'gamma': float(context.run_config["gamma"]),
-            'num_nodes': num_nodes,
-            'learning_rate_schedule': learning_rate_schedule
-        },
-        'metrics': {
-            'ut_norm': [],
-            'likable_prob': [],
-            'nonlikable_prob': [],
-            'correlated_mass': []
-        },
-        'history': {
-            'train_loss': [],
-            'train_rmse': [],
-            'test_loss': [], 
-            'test_rmse': [], 
-            'precision_at_k': [],
-            'recall_at_k': [],
-            'ndcg_at_k': [],
-            'coverage': [],
-            'rounds': []
-        }
-    }
+    # Clear existing metric files
+    for file_type in ['metrics', 'rounds', 'epochs']:
+        file_path = f'metrics/{file_type}_{metrics_prefix}.json'
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            print(f"Cleared existing {file_path}")
     
     def on_exit():
-        # Save consolidated history to single JSON file
-        os.makedirs('histories', exist_ok=True)
-        history_file = f'histories/history_{history_filename}.json'
-        with open(history_file, 'w') as f:
-            json.dump(histories, f)
+        # Create metrics filename based on parameters
+        metrics_prefix = (
+            f"lr={learning_rate}_"
+            f"beta={beta}_"
+            f"gamma={gamma}_"
+            f"temp={temperature}_"
+            f"negpen={negative_penalty}_"
+            f"poppen={popularity_penalty}_"
+            f"lrsched={learning_rate_schedule}"
+        )
         
-        # Call the plot function after saving the history
-        plot_metrics_from_file(history_file)
+        print(f"Starting consolidation for prefix: {metrics_prefix}")
+        
+        # Ensure metrics directory exists
+        os.makedirs('metrics', exist_ok=True)
+        
+        # Initialize consolidated metrics
+        consolidated_metrics = {
+            'config': {
+                'model': model_type,
+                'lr': float(context.run_config["learning-rate"]),
+                'beta': float(context.run_config["beta"]),
+                'gamma': float(context.run_config["gamma"]),
+                'temp': temperature,
+                'neg_pen': float(negative_penalty),
+                'pop_pen': float(popularity_penalty),
+                'lr_schedule': learning_rate_schedule
+            },
+            'metrics': {
+                'train_loss': [],
+                'train_rmse': [],
+                'test_loss': [],
+                'test_rmse': [],
+                'precision_at_k': [],
+                'recall_at_k': [],
+                'ndcg_at_k': [],
+                'coverage': [],
+                'test_ut_norm': [],
+                'test_likable_prob': [],
+                'test_nonlikable_prob': [],
+                'test_correlated_mass': [],
+                'train_ut_norm': [],
+                'train_likable_prob': [],
+                'train_nonlikable_prob': [],
+                'train_correlated_mass': []
+            }
+        }
+        
+        # Load rounds file
+        rounds_file = f'metrics/rounds_{metrics_prefix}.json'
+        print(f"Looking for rounds file: {rounds_file}")
+        if os.path.exists(rounds_file):
+            print(f"Found rounds file")
+            with open(rounds_file, 'r') as f:
+                rounds_data = json.load(f)
+                print(f"Rounds data: {rounds_data}")
+                if 'metrics' in rounds_data:
+                    for metric_name, values in rounds_data['metrics'].items():
+                        if metric_name in consolidated_metrics['metrics']:
+                            # Handle both list and float values
+                            if isinstance(values, (list, tuple)):
+                                consolidated_metrics['metrics'][metric_name].extend(values)
+                            else:
+                                consolidated_metrics['metrics'][metric_name].append(values)
+                            print(f"Added values to {metric_name}")
+        else:
+            print("Rounds file not found")
+            
+        # Load epochs file
+        epochs_file = f'metrics/epochs_{metrics_prefix}.json'
+        print(f"Looking for epochs file: {epochs_file}")
+        if os.path.exists(epochs_file):
+            print(f"Found epochs file")
+            with open(epochs_file, 'r') as f:
+                epochs_data = json.load(f)
+                print(f"Epochs data: {epochs_data}")
+                if 'metrics' in epochs_data:
+                    # Iterate through each round/client combination
+                    for round_client_data in epochs_data['metrics'].values():
+                        # Add each metric to the consolidated metrics
+                        for metric_name, values in round_client_data.items():
+                            if metric_name in consolidated_metrics['metrics']:
+                                # Handle both list and float values
+                                if isinstance(values, (list, tuple)):
+                                    consolidated_metrics['metrics'][metric_name].extend(values)
+                                else:
+                                    consolidated_metrics['metrics'][metric_name].append(values)
+                                print(f"Added values to {metric_name}")
+        else:
+            print("Epochs file not found")
+        
+        # Save consolidated metrics
+        output_file = f'metrics/metrics_{metrics_prefix}.json'
+        print(f"Saving consolidated metrics to: {output_file}")
+        print(f"Final metrics: {consolidated_metrics}")
+        with open(output_file, 'w') as f:
+            json.dump(consolidated_metrics, f)
+        
+        # Call the plot function after saving
+        plot_metrics_from_file(output_file)
+        
+        # Clean up intermediate files
+        #3for f in [epochs_file, rounds_file]:
+        #    if os.path.exists(f):
+        #        os.remove(f)
+        #        print(f"Cleaned up {f}")
     
     atexit.register(on_exit)
     
-    # Update strategy to collect histories
+    # Create strategy without histories parameter
     strategy = CustomFedAvg(
         fraction_fit=1.0,
         fraction_evaluate=1.0,
         min_fit_clients=1,
         min_evaluate_clients=1,
         min_available_clients=1,
-        histories=histories
+        model_type=model_type,
+        learning_rate=learning_rate,
+        beta=beta,
+        gamma=gamma,
+        temperature=temperature,
+        negative_penalty=negative_penalty,
+        popularity_penalty=popularity_penalty,
+        learning_rate_schedule=learning_rate_schedule
     )
 
     return ServerAppComponents(
