@@ -24,6 +24,7 @@ clientapp = "src.client:app"
 
 [tool.flwr.app.config]
 model-type = "vae"
+num-nodes = 2
 num-server-rounds = 3
 local-epochs = 5
 top-k = 10

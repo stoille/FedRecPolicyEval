@@ -572,27 +572,53 @@ def calculate_model_divergence(local_vectors: List[np.ndarray], global_vector: n
     """Calculate divergence metrics between local and global models."""
     divergence_metrics = {}
     
-    # Cosine distances between each local model and global model
+    # Debug prints
+    print(f"Number of local vectors: {len(local_vectors)}")
+    print(f"Shape of first local vector: {local_vectors[0].shape}")
+    print(f"Shape of global vector: {global_vector.shape}")
+    
+    # Ensure vectors are properly shaped for cosine distance
+    def reshape_vector(v):
+        return v.flatten() if len(v.shape) > 1 else v
+    
+    # Reshape global vector
+    global_vector = reshape_vector(global_vector)
+    
+    # Calculate cosine distances between each local model and global model
     cosine_distances = []
     for local_vec in local_vectors:
-        cos_dist = 1 - np.dot(local_vec, global_vector) / (
-            np.linalg.norm(local_vec) * np.linalg.norm(global_vector)
-        )
-        cosine_distances.append(cos_dist)
+        local_vec = reshape_vector(local_vec)
+        norm_product = np.linalg.norm(local_vec) * np.linalg.norm(global_vector)
+        if norm_product > 0:
+            cos_dist = 1 - np.dot(local_vec, global_vector) / norm_product
+            cosine_distances.append(cos_dist)
     
-    # Pairwise distances between local models
+    # Calculate pairwise distances (personalization) between local models if we have at least 2 models
     pairwise_distances = []
-    for i in range(len(local_vectors)):
-        for j in range(i + 1, len(local_vectors)):
-            cos_dist = 1 - np.dot(local_vectors[i], local_vectors[j]) / (
-                np.linalg.norm(local_vectors[i]) * np.linalg.norm(local_vectors[j])
-            )
-            pairwise_distances.append(cos_dist)
+    if len(local_vectors) >= 2:
+        for i in range(len(local_vectors)):
+            vec_i = reshape_vector(local_vectors[i])
+            for j in range(i + 1, len(local_vectors)):
+                vec_j = reshape_vector(local_vectors[j])
+                norm_product = np.linalg.norm(vec_i) * np.linalg.norm(vec_j)
+                if norm_product > 0:
+                    cos_dist = 1 - np.dot(vec_i, vec_j) / norm_product
+                    pairwise_distances.append(cos_dist)
+                    print(f"Pairwise distance between models {i} and {j}: {cos_dist}")
+    
+    # Calculate metrics with safeguards
+    local_global_div = np.mean(cosine_distances) if cosine_distances else 0.0
+    personalization_degree = np.mean(pairwise_distances) if pairwise_distances else 0.0
+    max_local_div = max(pairwise_distances) if pairwise_distances else 0.0
+    
+    print(f"Local-global divergence: {local_global_div}")
+    print(f"Local-local divergence (aka personalization): {personalization_degree}")
+    print(f"Max local divergence: {max_local_div}")
     
     divergence_metrics.update({
-        'local_global_divergence': np.mean(cosine_distances),
-        'local_local_divergence': np.mean(pairwise_distances) if pairwise_distances else 0.0,
-        'max_local_divergence': np.max(pairwise_distances) if pairwise_distances else 0.0
+        'local_global_divergence': float(local_global_div),
+        'personalization_degree': float(personalization_degree),
+        'max_local_divergence': float(max_local_div)
     })
     
     return divergence_metrics

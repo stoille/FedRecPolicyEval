@@ -17,21 +17,24 @@ import glob
 def server_fn(context: Context) -> ServerApp:
     """Create server instance with initial parameters."""
     # Get config values
-    model_type = context.run_config["model-type"]
-    num_rounds = context.run_config["num-server-rounds"]
-    local_epochs = context.run_config["local-epochs"]
-    top_k = context.run_config["top-k"]
+    model_type = str(context.run_config["model-type"])
+    num_rounds = int(context.run_config["num-server-rounds"])
+    local_epochs = int(context.run_config["local-epochs"])
+    top_k = int(context.run_config["top-k"])
     learning_rate = str(context.run_config["learning-rate"])
     temperature = str(context.run_config["temperature"])
     negative_penalty = str(context.run_config["negative-penalty"])
     popularity_penalty = str(context.run_config["popularity-penalty"])
     beta = str(context.run_config["beta"])
     gamma = str(context.run_config["gamma"])
-    learning_rate_schedule = context.run_config["learning-rate-schedule"]
-    num_nodes = context.run_config.get("num-nodes", 2)
+    learning_rate_schedule = str(context.run_config["learning-rate-schedule"])
+    num_nodes = int(context.run_config["num-nodes"])
     
     # Create metrics filename prefix
     metrics_prefix = (
+        f"num_nodes={num_nodes}_"
+        f"rounds={num_rounds}_"
+        f"epochs={local_epochs}_"
         f"lr={learning_rate}_"
         f"beta={beta}_"
         f"gamma={gamma}_"
@@ -49,17 +52,6 @@ def server_fn(context: Context) -> ServerApp:
             print(f"Cleared existing {file_path}")
     
     def on_exit():
-        # Create metrics filename based on parameters
-        metrics_prefix = (
-            f"lr={learning_rate}_"
-            f"beta={beta}_"
-            f"gamma={gamma}_"
-            f"temp={temperature}_"
-            f"negpen={negative_penalty}_"
-            f"poppen={popularity_penalty}_"
-            f"lrsched={learning_rate_schedule}"
-        )
-        
         print(f"Starting consolidation for prefix: {metrics_prefix}")
         
         # Ensure metrics directory exists
@@ -68,7 +60,9 @@ def server_fn(context: Context) -> ServerApp:
         # Initialize consolidated metrics
         consolidated_metrics = {
             'config': {
-                'model': model_type,
+                'num_nodes': num_nodes,
+                'rounds': num_rounds,
+                'epochs': local_epochs,
                 'lr': float(context.run_config["learning-rate"]),
                 'beta': float(context.run_config["beta"]),
                 'gamma': float(context.run_config["gamma"]),
@@ -93,7 +87,10 @@ def server_fn(context: Context) -> ServerApp:
                 'train_ut_norm': [],
                 'train_likable_prob': [],
                 'train_nonlikable_prob': [],
-                'train_correlated_mass': []
+                'train_correlated_mass': [],
+                'local_global_divergence': [],
+                'personalization_degree': [],
+                'max_local_divergence': []
             }
         }
         
@@ -113,7 +110,7 @@ def server_fn(context: Context) -> ServerApp:
                                 consolidated_metrics['metrics'][metric_name].extend(values)
                             else:
                                 consolidated_metrics['metrics'][metric_name].append(values)
-                            print(f"Added values to {metric_name}")
+                            #print(f"Added values to {metric_name}")
         else:
             print("Rounds file not found")
             
@@ -136,7 +133,7 @@ def server_fn(context: Context) -> ServerApp:
                                     consolidated_metrics['metrics'][metric_name].extend(values)
                                 else:
                                     consolidated_metrics['metrics'][metric_name].append(values)
-                                print(f"Added values to {metric_name}")
+                                #print(f"Added values to {metric_name}")
         else:
             print("Epochs file not found")
         
@@ -172,7 +169,10 @@ def server_fn(context: Context) -> ServerApp:
         temperature=temperature,
         negative_penalty=negative_penalty,
         popularity_penalty=popularity_penalty,
-        learning_rate_schedule=learning_rate_schedule
+        learning_rate_schedule=learning_rate_schedule,
+        num_rounds=num_rounds,
+        num_nodes=num_nodes,
+        local_epochs=local_epochs
     )
 
     return ServerAppComponents(

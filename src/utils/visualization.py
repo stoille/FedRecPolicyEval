@@ -20,31 +20,50 @@ def plot_metrics_from_file(history_file: str):
     fig, axs = plt.subplots(3, 2, figsize=(15, 18))
     metrics = data['metrics']
     
-    # Training plots (top row)
+    # Training loss plot
     if 'epoch_train_loss' in metrics:
-        rounds = range(1, len(metrics['epoch_train_loss']) + 1)
-        axs[0, 0].plot(rounds, metrics['epoch_train_loss'], label='Training Loss')
+        epochs = np.arange(1, len(metrics['epoch_train_loss']) + 1)
+        axs[0, 0].plot(epochs, metrics['epoch_train_loss'], label='Training Loss')
         axs[0, 0].set_title('Training Loss')
-        axs[0, 0].set_xlabel('Rounds')
+        axs[0, 0].set_xlabel('Client Epochs')
         axs[0, 0].set_ylabel('Loss')
         axs[0, 0].legend()
     
-    if 'epoch_train_rmse' in metrics:
-        rounds = range(1, len(metrics['epoch_train_rmse']) + 1)
-        axs[0, 1].plot(rounds, metrics['epoch_train_rmse'], label='Training RMSE')
-        axs[0, 1].set_title('Training RMSE')
-        axs[0, 1].set_xlabel('Rounds')
-        axs[0, 1].set_ylabel('RMSE')
+    # Eval loss plot
+    if 'eval_loss' in metrics:
+        rounds = np.arange(1, len(metrics['eval_loss']) + 1)
+        axs[0, 1].plot(rounds, metrics['eval_loss'], label='Eval Loss')
+        axs[0, 1].set_title('Eval Loss')
+        axs[0, 1].set_xlabel('Aggregation Rounds')
+        axs[0, 1].set_ylabel('Loss')
         axs[0, 1].legend()
     
-    # Eval plots (middle row)
-    if 'eval_rmse' in metrics:
-        rounds = range(1, len(metrics['eval_rmse']) + 1)
-        axs[1, 0].plot(rounds, metrics['eval_rmse'], label='Eval RMSE')
-        axs[1, 0].set_title('Eval RMSE')
-        axs[1, 0].set_xlabel('Rounds')
+    # Training RMSE plot
+    if 'epoch_train_rmse' in metrics:
+        epochs = np.arange(1, len(metrics['epoch_train_rmse']) + 1)
+        axs[1, 0].plot(epochs, metrics['epoch_train_rmse'], label='Training RMSE')
+        axs[1, 0].set_title('Training RMSE')
+        axs[1, 0].set_xlabel('Client Epochs')
         axs[1, 0].set_ylabel('RMSE')
         axs[1, 0].legend()
+    
+    # Eval RMSE plot
+    if 'eval_rmse' in metrics:
+        rounds = np.arange(1, len(metrics['eval_rmse']) + 1)
+        axs[1, 1].plot(rounds, metrics['eval_rmse'], label='Eval RMSE')
+        axs[1, 1].set_title('Eval RMSE')
+        axs[1, 1].set_xlabel('Aggregation Rounds')
+        axs[1, 1].set_ylabel('RMSE')
+        axs[1, 1].legend()
+    
+    # ROC_AUC plot
+    if 'roc_auc' in metrics:
+        rounds = np.arange(1, len(metrics['roc_auc']) + 1)
+        axs[2, 0].plot(rounds, metrics['roc_auc'], label='ROC AUC')
+        axs[2, 0].set_title('ROC AUC Score')
+        axs[2, 0].set_xlabel('Aggregation Rounds')
+        axs[2, 0].set_ylabel('Score')
+        axs[2, 0].legend()
     
     # Recommendation metrics
     metrics_to_plot = ['precision_at_k', 'recall_at_k', 'ndcg_at_k', 'coverage']
@@ -73,6 +92,18 @@ def plot_metrics_from_file(history_file: str):
             axs[2, 1].set_xlabel('Rounds')
             axs[2, 1].set_ylabel('Probability')
             axs[2, 1].legend()
+    
+    if 'local_global_divergence' in metrics:
+        rounds = range(1, len(metrics['local_global_divergence']) + 1)
+        axs[2, 1].plot(rounds, metrics['local_global_divergence'], label='Local-Global')
+        if 'personalization_degree' in metrics:
+            axs[2, 1].plot(rounds, metrics['personalization_degree'], label='Local-Local')
+        if 'max_local_divergence' in metrics:
+            axs[2, 1].plot(rounds, metrics['max_local_divergence'], label='Max Local')
+        axs[2, 1].set_title('Model Divergence')
+        axs[2, 1].set_xlabel('Rounds')
+        axs[2, 1].set_ylabel('Cosine Distance')
+        axs[2, 1].legend()
     
     plt.tight_layout()
     plt.savefig(f"{output_dir}/{base_filename}.png")

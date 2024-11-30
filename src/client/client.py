@@ -45,7 +45,9 @@ class MovieLensClient(NumPyClient):
         gamma: float,
         learning_rate_schedule: str,
         client_id: int,
-        preference_init_scale: float = 0.3
+        preference_init_scale: float = 0.3,
+        num_nodes: int = 1,
+        num_rounds: int = 100
     ):
         self.trainloader = trainloader
         self.eval_loader = eval_loader
@@ -64,6 +66,20 @@ class MovieLensClient(NumPyClient):
         self.beta = beta
         self.gamma = gamma
         self.learning_rate_schedule = learning_rate_schedule
+        self.num_nodes = num_nodes
+        self.num_rounds = num_rounds
+        self.metrics_prefix = (
+            f"num_nodes={self.num_nodes}_"
+            f"rounds={self.num_rounds}_"
+            f"epochs={self.local_epochs}_"
+            f"lr={self.learning_rate}_"
+            f"beta={self.beta}_"
+            f"gamma={self.gamma}_"
+            f"temp={self.temperature}_"
+            f"negpen={self.negative_penalty}_"
+            f"poppen={self.popularity_penalty}_"
+            f"lrsched={self.learning_rate_schedule}"
+        )
         
         # Initialize model with provided dimensions
         if model_type == 'mf':
@@ -164,23 +180,11 @@ class MovieLensClient(NumPyClient):
                 'correlated_mass': 0.0
             }
         
-        # Combine all metrics and encode lists as JSON strings
-        metrics = {
-            'train_loss': epoch_metrics['epoch_train_loss'],
-            'train_rmse': epoch_metrics['epoch_train_rmse'],
-            'train_ut_norm': np.mean(epoch_metrics['ut_norm']),
-            'train_likable_prob': np.mean(epoch_metrics['likable_prob']),
-            'train_nonlikable_prob': np.mean(epoch_metrics['nonlikable_prob']),
-            'train_correlated_mass': np.mean(epoch_metrics['correlated_mass']),
-            'eval_ut_norm': round_preferences['ut_norm'],
-            'eval_likable_prob': round_preferences['likable_prob'],
-            'eval_nonlikable_prob': round_preferences['nonlikable_prob'],
-            'eval_correlated_mass': round_preferences['correlated_mass']
-        }
-        
         # Get experiment config from client init params
-        exp_config = {
-            'model': self.model_type,
+        config_object = {
+            'num_nodes': self.num_nodes,
+            'rounds': self.num_rounds,
+            'epochs': self.local_epochs,
             'lr': self.learning_rate,
             'beta': self.preference_evolution.beta,
             'gamma': self.preference_evolution.gamma,
@@ -190,18 +194,7 @@ class MovieLensClient(NumPyClient):
             'lr_schedule': self.preference_evolution.learning_rate_schedule
         }
         
-        # Create consistent filename for this experiment
-        metrics_prefix = (
-            f"lr={self.learning_rate}_"
-            f"beta={self.beta}_"
-            f"gamma={self.gamma}_"
-            f"temp={self.temperature}_"
-            f"negpen={self.negative_penalty}_"
-            f"poppen={self.popularity_penalty}_"
-            f"lrsched={self.learning_rate_schedule}"
-        )
-        
-        epochs_file = f'metrics/epochs_{metrics_prefix}.json'
+        epochs_file = f'metrics/epochs_{self.metrics_prefix}.json'
         
         # Update epochs file
         try:
@@ -209,7 +202,7 @@ class MovieLensClient(NumPyClient):
                 all_epoch_data = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             all_epoch_data = {
-                'config': exp_config,  # Store config in file
+                'config': config_object,  # Store config in file
                 'metrics': {}
             }
         
@@ -232,7 +225,7 @@ class MovieLensClient(NumPyClient):
         metrics = {
             'round_id': round_id,
             'client_id': self.client_id,
-            'metrics_prefix': metrics_prefix
+            'metrics_prefix': self.metrics_prefix
         }
 
         return parameters, num_examples, metrics
@@ -337,7 +330,9 @@ def client_fn(context: Context) -> Client:
         gamma=float(config["gamma"]),
         learning_rate_schedule=config["learning-rate-schedule"],
         client_id=client_id,
-        preference_init_scale=float(config["preference-init-scale"])
+        preference_init_scale=float(config["preference-init-scale"]),
+        num_nodes=int(config["num-nodes"]),
+        num_rounds=int(config["num-server-rounds"])
     )
     numpy_client.client_id = client_id  # Set client_id after initialization
     return numpy_client.to_client()

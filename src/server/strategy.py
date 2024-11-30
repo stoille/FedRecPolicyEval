@@ -47,7 +47,10 @@ class CustomFedAvg(FedAvg):
         temperature: float = 0.5,
         negative_penalty: float = 0.2,
         popularity_penalty: float = 0.1,
-        learning_rate_schedule: str = "constant"
+        learning_rate_schedule: str = "constant",
+        num_rounds: int = 1,
+        num_nodes: int = 1,
+        local_epochs: int = 1
     ) -> None:
         super().__init__(
             fraction_fit=fraction_fit,
@@ -73,7 +76,22 @@ class CustomFedAvg(FedAvg):
         self.negative_penalty = negative_penalty
         self.popularity_penalty = popularity_penalty
         self.learning_rate_schedule = learning_rate_schedule
-
+        self.num_rounds = num_rounds
+        self.num_nodes = num_nodes
+        self.local_epochs = local_epochs
+        self.metrics_prefix = (
+            f"num_nodes={self.num_nodes}_"
+            f"rounds={self.num_rounds}_"
+            f"epochs={self.local_epochs}_"
+            f"lr={self.learning_rate}_"
+            f"beta={self.beta}_"
+            f"gamma={self.gamma}_"
+            f"temp={self.temperature}_"
+            f"negpen={self.negative_penalty}_"
+            f"poppen={self.popularity_penalty}_"
+            f"lrsched={self.learning_rate_schedule}"
+        )
+        
     def aggregate_fit(
         self,
         server_round: int,
@@ -83,6 +101,36 @@ class CustomFedAvg(FedAvg):
         """Aggregate fit results using weighted averaging and custom metrics."""
         if not results:
             return None, {}
+
+        # Extract local models and calculate global model
+        weights_results = [
+            (parameters_to_ndarrays(fit_res.parameters), fit_res.num_examples)
+            for _, fit_res in results
+        ]
+        
+        # Calculate global model through aggregation
+        total_examples = sum([num_examples for _, num_examples in weights_results])
+        aggregated_weights = []
+        for weights_list_tuple in zip(*[weights for weights, _ in weights_results]):
+            aggregated_layer = sum(
+                [(num_examples / total_examples) * layer
+                 for layer, (_, num_examples) in zip(weights_list_tuple, weights_results)]
+            )
+            aggregated_weights.append(aggregated_layer)
+
+        # Calculate divergence metrics
+        local_models = [weights[0] for weights, _ in weights_results]  # First layer contains user preferences
+        global_model = aggregated_weights[0]  # First layer of aggregated model
+        
+        divergence_metrics = calculate_model_divergence(local_models, global_model)
+        
+        logger.info(f"Divergence metrics: {divergence_metrics}")
+        # Add divergence metrics to metrics_aggregated
+        metrics_aggregated = {
+            'local_global_divergence': divergence_metrics['local_global_divergence'],
+            'personalization_degree': divergence_metrics['personalization_degree'],
+            'max_local_divergence': divergence_metrics['max_local_divergence']
+        }
 
         # Add logging before aggregation
         logger.info("Raw metrics from clients:")
@@ -111,7 +159,6 @@ class CustomFedAvg(FedAvg):
         parameters_aggregated = ndarrays_to_parameters(aggregated_weights)
 
         # Aggregate metrics
-        metrics_aggregated = {}
         num_clients = len(results)
         
         for _, fit_res in results:
@@ -129,28 +176,19 @@ class CustomFedAvg(FedAvg):
         # Add logging after aggregation
         logger.info(f"Aggregated metrics before saving: {metrics_aggregated}")
         
-        # Create metrics filename based on parameters
-        metrics_prefix = (
-            f"lr={self.learning_rate}_"
-            f"beta={self.beta}_"
-            f"gamma={self.gamma}_"
-            f"temp={self.temperature}_"
-            f"negpen={self.negative_penalty}_"
-            f"poppen={self.popularity_penalty}_"
-            f"lrsched={self.learning_rate_schedule}"
-        )
-        
-        metrics_file = f'metrics/rounds_{metrics_prefix}.json'
+        metrics_file = f'metrics/rounds_{self.metrics_prefix}.json'
         os.makedirs('metrics', exist_ok=True)
         
-        # Save metrics
+        # Load existing metrics file
         try:
             with open(metrics_file, 'r') as f:
                 all_metrics = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             all_metrics = {
                 'config': {
-                    'model': self.model_type,
+                    'num_nodes': self.num_nodes,
+                    'rounds': self.num_rounds,
+                    'epochs': self.local_epochs,
                     'lr': self.learning_rate,
                     'beta': self.beta,
                     'gamma': self.gamma,
@@ -171,7 +209,10 @@ class CustomFedAvg(FedAvg):
                     'eval_ut_norm': [],
                     'eval_likable_prob': [],
                     'eval_nonlikable_prob': [],
-                    'eval_correlated_mass': []
+                    'eval_correlated_mass': [],
+                    'local_global_divergence': [],
+                    'personalization_degree': [],
+                    'max_local_divergence': []
                 }
             }
         
@@ -179,6 +220,17 @@ class CustomFedAvg(FedAvg):
         for metric_name, value in metrics_aggregated.items():
             if metric_name in all_metrics['metrics']:
                 all_metrics['metrics'][metric_name].append(float(value))
+        
+        # Update metrics file with divergence metrics
+        all_metrics['metrics'].update({
+            'local_global_divergence': [],
+            'personalization_degree': [],
+            'max_local_divergence': []
+        })
+        
+        for metric_name in ['local_global_divergence', 'personalization_degree', 'max_local_divergence']:
+            if metric_name in metrics_aggregated:
+                all_metrics['metrics'][metric_name].append(float(metrics_aggregated[metric_name]))
         
         # Add logging after loading/before saving
         logger.info(f"Current metrics state: {all_metrics}")
@@ -229,18 +281,7 @@ class CustomFedAvg(FedAvg):
 
         logger.info(f"Aggregated evaluation metrics: {metrics_aggregated}")
         
-        # Save metrics using the same file-based approach as aggregate_fit
-        metrics_prefix = (
-            f"lr={self.learning_rate}_"
-            f"beta={self.beta}_"
-            f"gamma={self.gamma}_"
-            f"temp={self.temperature}_"
-            f"negpen={self.negative_penalty}_"
-            f"poppen={self.popularity_penalty}_"
-            f"lrsched={self.learning_rate_schedule}"
-        )
-        
-        metrics_file = f'metrics/rounds_{metrics_prefix}.json'
+        metrics_file = f'metrics/rounds_{self.metrics_prefix}.json'
         
         try:
             with open(metrics_file, 'r') as f:
