@@ -4,11 +4,11 @@ from torch.utils.data import DataLoader
 
 class TestDataLoader:
     @pytest.mark.integration
-    def test_load_data_vae(self):
-        train_loader, test_loader, metadata = load_data(model_type='vae')
+    def eval_load_data_vae(self):
+        train_loader, eval_loader, metadata = load_data(model_type='vae')
         
         assert isinstance(train_loader, DataLoader)
-        assert isinstance(test_loader, DataLoader)
+        assert isinstance(eval_loader, DataLoader)
         assert isinstance(metadata, dict)
         assert 'num_items' in metadata
         assert 'num_users' in metadata
@@ -16,11 +16,11 @@ class TestDataLoader:
         assert isinstance(metadata['num_users'], int)
 
     @pytest.mark.integration
-    def test_load_data_mf(self):
-        train_loader, test_loader, metadata = load_data(model_type='mf')
+    def eval_load_data_mf(self):
+        train_loader, eval_loader, metadata = load_data(model_type='mf')
         
         assert isinstance(train_loader, DataLoader)
-        assert isinstance(test_loader, DataLoader)
+        assert isinstance(eval_loader, DataLoader)
         assert isinstance(metadata, dict)
         assert 'num_items' in metadata
         assert 'num_users' in metadata

@@ -20,7 +20,7 @@ def mock_data():
     
     # Split into train and test
     train_data = interactions[:80]  # First 80 users for training
-    test_data = interactions[80:]   # Last 20 users for testing
+    eval_data = interactions[80:]   # Last 20 users for testing
     
     # Create data loaders
     train_loader = DataLoader(
@@ -29,20 +29,20 @@ def mock_data():
         shuffle=True
     )
     
-    test_loader = DataLoader(
-        TensorDataset(test_data),
+    eval_loader = DataLoader(
+        TensorDataset(eval_data),
         batch_size=32,
         shuffle=False
     )
     
-    return train_loader, test_loader
+    return train_loader, eval_loader
 
 class TestMovieLensClient:
-    def test_client_initialization(self, mock_data):
-        train_loader, test_loader = mock_data
+    def eval_client_initialization(self, mock_data):
+        train_loader, eval_loader = mock_data
         client = MovieLensClient(
             trainloader=train_loader,
-            testloader=test_loader,
+            eval_loader=eval_loader,
             model_type='vae',
             num_items=50,
             num_users=100,
@@ -55,11 +55,11 @@ class TestMovieLensClient:
         assert client is not None
 
     @pytest.mark.integration
-    def test_client_fit(self, mock_data):
-        train_loader, test_loader = mock_data
+    def eval_client_fit(self, mock_data):
+        train_loader, eval_loader = mock_data
         client = MovieLensClient(
             trainloader=train_loader,
-            testloader=test_loader,
+            eval_loader=eval_loader,
             model_type='vae',
             num_items=50,
             num_users=100,
@@ -77,9 +77,9 @@ class TestMovieLensClient:
         def mock_train(*args, **kwargs):
             return {
                 'epoch_train_loss': 0.5,
-                'round_test_loss': 0.6,
+                'round_eval_loss': 0.6,
                 'epoch_train_rmse': 0.4,
-                'round_test_rmse': 0.4,
+                'round_eval_rmse': 0.4,
                 'precision_at_k': 0.3,
                 'recall_at_k': 0.2,
                 'ndcg_at_k': 0.1,

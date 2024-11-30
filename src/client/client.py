@@ -19,7 +19,7 @@ logger = logging.getLogger("MovieLensClient")
 from src.data.data_loader import load_data
 from src.models.matrix_factorization import MatrixFactorization
 from src.models.vae import VAE
-from src.utils.metrics import train, test
+from src.utils.metrics import train, eval
 from src.utils.preference_evolution import PreferenceEvolution
 from src.utils.model_utils import set_weights, get_weights
 import torch
@@ -29,7 +29,7 @@ class MovieLensClient(NumPyClient):
     def __init__(
         self,
         trainloader,
-        testloader,
+        eval_loader,
         model_type: str,
         num_users: int,
         num_items: int,
@@ -48,7 +48,7 @@ class MovieLensClient(NumPyClient):
         preference_init_scale: float = 0.3
     ):
         self.trainloader = trainloader
-        self.testloader = testloader
+        self.eval_loader = eval_loader
         self.model_type = model_type
         self.num_users = num_users
         self.num_items = num_items
@@ -172,10 +172,10 @@ class MovieLensClient(NumPyClient):
             'train_likable_prob': np.mean(epoch_metrics['likable_prob']),
             'train_nonlikable_prob': np.mean(epoch_metrics['nonlikable_prob']),
             'train_correlated_mass': np.mean(epoch_metrics['correlated_mass']),
-            'test_ut_norm': round_preferences['ut_norm'],
-            'test_likable_prob': round_preferences['likable_prob'],
-            'test_nonlikable_prob': round_preferences['nonlikable_prob'],
-            'test_correlated_mass': round_preferences['correlated_mass']
+            'eval_ut_norm': round_preferences['ut_norm'],
+            'eval_likable_prob': round_preferences['likable_prob'],
+            'eval_nonlikable_prob': round_preferences['nonlikable_prob'],
+            'eval_correlated_mass': round_preferences['correlated_mass']
         }
         
         # Get experiment config from client init params
@@ -246,15 +246,15 @@ class MovieLensClient(NumPyClient):
             return items, recon_x
 
     def evaluate(self, parameters: NDArrays, config: Dict[str, Scalar]) -> Tuple[float, int, Dict[str, Scalar]]:
-        """Evaluate model parameters on the locally held test set."""
+        """Evaluate model parameters on the locally held eval set."""
         
-        """Evaluate model parameters on test data."""
+        """Evaluate model parameters on eval data."""
         set_weights(self.model, parameters)
         
-        # Calculate test metrics
-        test_metrics = test(
+        # Calculate eval metrics
+        eval_metrics = eval(
             model=self.model,
-            test_loader=self.testloader,
+            eval_loader=self.eval_loader,
             device=self.device,
             top_k=self.top_k,
             model_type=self.model_type,
@@ -266,29 +266,29 @@ class MovieLensClient(NumPyClient):
         )
         
         # Process test batches for preference evolution
-        for batch in self.testloader:
+        for batch in self.eval_loader:
             items, scores = self.get_batch_predictions(batch)
             self.preference_evolution.update_preferences(items, scores, is_round=True)
         
         # Calculate basic test metrics
-        test_loss = 0.0
-        test_rmse = 0.0
+        eval_loss = 0.0
+        eval_rmse = 0.0
         num_batches = 0
         
         with torch.no_grad():
-            for batch in self.testloader:
+            for batch in self.eval_loader:
                 items = batch.to(self.device)
                 recon_x, mu, logvar = self.model(items)
                 loss = self.model.loss_function(recon_x, items, mu, logvar)
                 rmse = torch.sqrt(F.mse_loss(recon_x, items))
                 
-                test_loss += loss.item()
-                test_rmse += rmse.item()
+                eval_loss += loss.item()
+                eval_rmse += rmse.item()
                 num_batches += 1
         
-        test_metrics.update({
-            'test_loss': test_loss / num_batches,
-            'test_rmse': test_rmse / num_batches
+        eval_metrics.update({
+            'eval_loss': eval_loss / num_batches,
+            'eval_rmse': eval_rmse / num_batches
         })
         
         # Finalize the round to get aggregated metrics
@@ -296,14 +296,14 @@ class MovieLensClient(NumPyClient):
         
         # Add preference evolution metrics if available
         if round_metrics:
-            test_metrics.update({
-                'test_ut_norm': round_metrics['ut_norm'],
-                'test_likable_prob': round_metrics['likable_prob'],
-                'test_nonlikable_prob': round_metrics['nonlikable_prob'],
-                'test_correlated_mass': round_metrics['correlated_mass']
+            eval_metrics.update({
+                'eval_ut_norm': round_metrics['ut_norm'],
+                'eval_likable_prob': round_metrics['likable_prob'],
+                'eval_nonlikable_prob': round_metrics['nonlikable_prob'],
+                'eval_correlated_mass': round_metrics['correlated_mass']
             })
         
-        return float(test_metrics['test_loss']), len(self.testloader.dataset), test_metrics
+        return float(eval_metrics['eval_loss']), len(self.eval_loader.dataset), eval_metrics
 
 """Create and configure client application."""
 def client_fn(context: Context) -> Client:
@@ -312,7 +312,7 @@ def client_fn(context: Context) -> Client:
     client_id = int(context.node_id)
 
     # Get data with dimensions
-    trainloader, testloader, dimensions = load_data(model_type=config["model-type"])
+    trainloader, eval_loader, dimensions = load_data(model_type=config["model-type"])
 
     # Fix device setting to pass string instead of torch.device
     device_str = ("cuda" if torch.cuda.is_available() 
@@ -321,7 +321,7 @@ def client_fn(context: Context) -> Client:
 
     numpy_client = MovieLensClient(
         trainloader=trainloader,
-        testloader=testloader,
+        eval_loader=eval_loader,
         model_type=config["model-type"],
         num_users=dimensions['num_users'],
         num_items=dimensions['num_items'],

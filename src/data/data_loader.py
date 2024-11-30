@@ -36,7 +36,7 @@ def load_data(model_type: str = 'vae') -> tuple[DataLoader, DataLoader, dict]:
     
     # Split data
     train_df = ratings_df.sample(frac=0.8, random_state=42)
-    test_df = ratings_df.drop(train_df.index)
+    eval_df = ratings_df.drop(train_df.index)
     
     # Create datasets
     train_dataset = MovieLensDataset(
@@ -45,15 +45,15 @@ def load_data(model_type: str = 'vae') -> tuple[DataLoader, DataLoader, dict]:
         mode=model_type
     )
     
-    test_dataset = MovieLensDataset(
-        ratings_df=test_df,
+    eval_dataset = MovieLensDataset(
+        ratings_df=eval_df,
         num_items=len(item_map),
         mode=model_type
     )
     
     # Create dataloaders
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+    eval_loader = DataLoader(eval_dataset, batch_size=32, shuffle=False)
     
     logger.info("Checking data ranges:")
     for batch in train_loader:
@@ -62,4 +62,4 @@ def load_data(model_type: str = 'vae') -> tuple[DataLoader, DataLoader, dict]:
             logger.info(f"Train data - Max user_id: {user_ids.max()}, Max item_id: {item_ids.max()}")
         break
     
-    return train_loader, test_loader, dimensions
+    return train_loader, eval_loader, dimensions

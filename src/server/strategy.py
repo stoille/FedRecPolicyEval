@@ -162,16 +162,16 @@ class CustomFedAvg(FedAvg):
                 'metrics': {
                     'train_loss': [],
                     'train_rmse': [],
-                    'test_loss': [],
-                    'test_rmse': [],
+                    'eval_loss': [],
+                    'eval_rmse': [],
                     'precision_at_k': [],
                     'recall_at_k': [],
                     'ndcg_at_k': [],
                     'coverage': [],
-                    'test_ut_norm': [],
-                    'test_likable_prob': [],
-                    'test_nonlikable_prob': [],
-                    'test_correlated_mass': []
+                    'eval_ut_norm': [],
+                    'eval_likable_prob': [],
+                    'eval_nonlikable_prob': [],
+                    'eval_correlated_mass': []
                 }
             }
         
@@ -201,16 +201,16 @@ class CustomFedAvg(FedAvg):
             return None, {}
 
         metrics_aggregated = {
-            'test_loss': 0.0,
-            'test_rmse': 0.0,
+            'eval_loss': 0.0,
+            'eval_rmse': 0.0,
             'precision_at_k': 0.0,
             'recall_at_k': 0.0,
             'ndcg_at_k': 0.0,
             'coverage': 0.0,
-            'test_ut_norm': 0.0,
-            'test_likable_prob': 0.0,
-            'test_nonlikable_prob': 0.0,
-            'test_correlated_mass': 0.0
+            'eval_ut_norm': 0.0,
+            'eval_likable_prob': 0.0,
+            'eval_nonlikable_prob': 0.0,
+            'eval_correlated_mass': 0.0
         }
         num_clients = len(results)
         
@@ -247,7 +247,7 @@ class CustomFedAvg(FedAvg):
                 all_metrics = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             # File should exist from aggregate_fit, but just in case
-            return float(metrics_aggregated['test_loss']), metrics_aggregated
+            return float(metrics_aggregated['eval_loss']), metrics_aggregated
         
         # Append evaluation metrics to existing lists
         for name, value in metrics_aggregated.items():
@@ -260,7 +260,7 @@ class CustomFedAvg(FedAvg):
         with open(metrics_file, 'w') as f:
             json.dump(all_metrics, f)
         
-        return float(metrics_aggregated['test_loss']), metrics_aggregated
+        return float(metrics_aggregated['eval_loss']), metrics_aggregated
 
     def aggregate_mf_parameters(
         self,

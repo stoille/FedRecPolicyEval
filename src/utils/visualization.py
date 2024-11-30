@@ -37,38 +37,38 @@ def plot_metrics_from_file(history_file: str):
         axs[0, 1].set_ylabel('RMSE')
         axs[0, 1].legend()
     
-    # Test plots (middle row)
-    if 'test_rmse' in metrics:
-        rounds = range(1, len(metrics['test_rmse']) + 1)
-        axs[1, 0].plot(rounds, metrics['test_rmse'], label='Test RMSE')
-        axs[1, 0].set_title('Test RMSE')
+    # Eval plots (middle row)
+    if 'eval_rmse' in metrics:
+        rounds = range(1, len(metrics['eval_rmse']) + 1)
+        axs[1, 0].plot(rounds, metrics['eval_rmse'], label='Eval RMSE')
+        axs[1, 0].set_title('Eval RMSE')
         axs[1, 0].set_xlabel('Rounds')
         axs[1, 0].set_ylabel('RMSE')
         axs[1, 0].legend()
     
     # Recommendation metrics
-    metrics_to_plot = ['test_precision_at_k', 'test_recall_at_k', 'test_ndcg_at_k', 'test_coverage']
+    metrics_to_plot = ['precision_at_k', 'recall_at_k', 'ndcg_at_k', 'coverage']
     for metric in metrics_to_plot:
         if metric in metrics:
             rounds = range(1, len(metrics[metric]) + 1)
-            axs[1, 1].plot(rounds, metrics[metric], label=metric.replace('test_', '').replace('_', ' ').title())
+            axs[1, 1].plot(rounds, metrics[metric], label=metric.replace('eval_', '').replace('_', ' ').title())
     axs[1, 1].set_title('Recommendation Metrics')
     axs[1, 1].set_xlabel('Rounds')
     axs[1, 1].set_ylabel('Value')
     axs[1, 1].legend()
     
     # Preference evolution metrics (bottom row)
-    if 'test_ut_norm' in metrics:
-        rounds = range(1, len(metrics['test_ut_norm']) + 1)
-        axs[2, 0].plot(rounds, metrics['test_ut_norm'], label='User Preference Norm')
+    if 'eval_ut_norm' in metrics:
+        rounds = range(1, len(metrics['eval_ut_norm']) + 1)
+        axs[2, 0].plot(rounds, metrics['eval_ut_norm'], label='User Preference Norm')
         axs[2, 0].set_title('User Preference Norm')
         axs[2, 0].set_xlabel('Rounds')
         axs[2, 0].set_ylabel('Norm')
         axs[2, 0].legend()
         
-        if 'test_likable_prob' in metrics and 'test_nonlikable_prob' in metrics:
-            axs[2, 1].plot(rounds, metrics['test_likable_prob'], label='Likable Items')
-            axs[2, 1].plot(rounds, metrics['test_nonlikable_prob'], label='Non-likable Items')
+        if 'eval_likable_prob' in metrics and 'eval_nonlikable_prob' in metrics:
+            axs[2, 1].plot(rounds, metrics['eval_likable_prob'], label='Likable Items')
+            axs[2, 1].plot(rounds, metrics['eval_nonlikable_prob'], label='Non-likable Items')
             axs[2, 1].set_title('Item Type Probabilities')
             axs[2, 1].set_xlabel('Rounds')
             axs[2, 1].set_ylabel('Probability')

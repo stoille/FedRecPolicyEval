@@ -25,9 +25,9 @@ class MetricsLogger:
             'epoch_train_rmse': [],
             'rounds': []
         }
-        self.test_history = {
-            'round_test_loss': [],
-            'round_test_rmse': [],
+        self.eval_history = {
+            'round_eval_loss': [],
+            'round_eval_rmse': [],
             'precision_at_k': [],
             'recall_at_k': [],
             'ndcg_at_k': [],
@@ -38,7 +38,7 @@ class MetricsLogger:
         self.current_round = 0
         
     def log_metrics(self, metrics, is_training=True):
-        history = self.train_history if is_training else self.test_history
+        history = self.train_history if is_training else self.eval_history
         
         if is_training:
             # For training metrics, append to existing arrays
@@ -46,7 +46,7 @@ class MetricsLogger:
                 if key in history and metrics[key] is not None:
                     history[key].append(metrics[key])
         else:
-            # For test metrics, increment round first
+            # For eval metrics, increment round first
             self.current_round += 1
             # Then append all metrics
             history['rounds'].append(self.current_round)
@@ -105,8 +105,8 @@ def compute_metrics(model, batch, top_k, total_items, device, user_map, temperat
         'ndcg_at_k': np.mean(ndcgs),
         'roc_auc': np.mean(roc_aucs) if roc_aucs else None,
         'coverage': coverage,
-        'test_ut_vector': ut_vector,
-        'test_ut_norm': np.linalg.norm(ut_vector)
+        'eval_ut_vector': ut_vector,
+        'eval_ut_norm': np.linalg.norm(ut_vector)
     }
 
 def calculate_recommendation_metrics(top_k_items, relevant_items, top_k, total_items):
@@ -228,18 +228,18 @@ def train(model, train_loader, optimizer, device, epochs, model_type: str):
         'epoch_train_rmse': epoch_rmses
     }
 
-def test(model, test_loader, device, top_k, model_type, num_items, user_map, temperature, negative_penalty, popularity_penalty):
+def eval(model, eval_loader, device, top_k, model_type, num_items, user_map, temperature, negative_penalty, popularity_penalty):
     """Test the model and return metrics."""
     model.eval()
-    round_test_loss = 0.0
-    round_test_rmse = 0.0
+    round_eval_loss = 0.0
+    round_eval_rmse = 0.0
     all_precisions = []
     all_recalls = []
     all_ndcgs = []
     all_coverages = []
     
     with torch.no_grad():
-        for batch in test_loader:
+        for batch in eval_loader:
             # Move batch to device
             if isinstance(batch, torch.Tensor):
                 batch = batch.to(device)
@@ -276,25 +276,25 @@ def test(model, test_loader, device, top_k, model_type, num_items, user_map, tem
                 loss = F.mse_loss(output, batch)
                 rmse = torch.sqrt(loss)
             
-            round_test_loss += loss.item()
-            round_test_rmse += rmse.item()
+            round_eval_loss += loss.item()
+            round_eval_rmse += rmse.item()
     
     # Average metrics
-    avg_round_test_loss = round_test_loss / len(test_loader)
-    avg_round_test_rmse = round_test_rmse / len(test_loader)
+    avg_round_eval_loss = round_eval_loss / len(eval_loader)
+    avg_round_eval_rmse = round_eval_rmse / len(eval_loader)
     avg_precision = np.mean(all_precisions) if all_precisions else 0.0
     avg_recall = np.mean(all_recalls) if all_recalls else 0.0
     avg_ndcg = np.mean(all_ndcgs) if all_ndcgs else 0.0
     coverage = np.mean(all_coverages) if all_coverages else 0.0
-    logger.info(f"Avg round test loss: {avg_round_test_loss}")
-    logger.info(f"Avg round test rmse: {avg_round_test_rmse}")
-    logger.info(f"Avg precision: {avg_precision}")
-    logger.info(f"Avg recall: {avg_recall}")
-    logger.info(f"Avg ndcg: {avg_ndcg}")
-    logger.info(f"Coverage: {coverage}")
+    #logger.info(f"Avg round eval loss: {avg_round_eval_loss}")
+    #logger.info(f"Avg round test rmse: {avg_round_eval_rmse}")
+    #logger.info(f"Avg precision: {avg_precision}")
+    #logger.info(f"Avg recall: {avg_recall}")
+    #logger.info(f"Avg ndcg: {avg_ndcg}")
+    #logger.info(f"Coverage: {coverage}")
     return {
-        'test_loss': avg_round_test_loss,
-        'test_rmse': avg_round_test_rmse,
+        'eval_loss': avg_round_eval_loss,
+        'eval_rmse': avg_round_eval_rmse,
         'precision_at_k': avg_precision,
         'recall_at_k': avg_recall,
         'ndcg_at_k': avg_ndcg,
@@ -564,7 +564,7 @@ def update_histories(histories: Dict, metrics: Dict, phase: str = 'train') -> No
         if 'rounds' in metrics:
             histories[history_key]['rounds'].append(metrics['rounds'])
     else:  # test
-        for key in ['round_test_loss', 'round_test_rmse', 'precision_at_k', 'recall_at_k', 'ndcg_at_k', 'coverage']:
+        for key in ['round_eval_loss', 'round_eval_rmse', 'precision_at_k', 'recall_at_k', 'ndcg_at_k', 'coverage']:
             if key in metrics:
                 histories[history_key][key].append(metrics[key])
 
