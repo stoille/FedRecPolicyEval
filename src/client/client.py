@@ -206,12 +206,12 @@ class MovieLensClient(NumPyClient):
 
         # Calculate final metrics for the round
         metrics = {
-            'train_loss': float(train_metrics['train_loss'][-1]),
-            'train_rmse': float(train_metrics['train_rmse'][-1]),
-            'ut_norm': float(train_metrics['ut_norm'][-1]),
-            'likable_prob': float(train_metrics['likable_prob'][-1]),
-            'nonlikable_prob': float(train_metrics['nonlikable_prob'][-1]),
-            'correlated_mass': float(train_metrics['correlated_mass'][-1])
+            'train_loss': float(np.mean(train_metrics['train_loss'])),
+            'train_rmse': float(np.mean(train_metrics['train_rmse'])),
+            'ut_norm': float(np.mean(train_metrics['ut_norm'])),
+            'likable_prob': float(np.mean(train_metrics['likable_prob'])),
+            'nonlikable_prob': float(np.mean(train_metrics['nonlikable_prob'])),
+            'correlated_mass': float(np.mean(train_metrics['correlated_mass']))
         }
         
         print(f"Client {self.client_id} returning fit results with metrics: {metrics}")

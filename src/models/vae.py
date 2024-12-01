@@ -65,4 +65,22 @@ class VAE(nn.Module):
         # KL divergence with annealing
         KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
         
-        return BCE + beta * KLD
+        # Add L2 regularization
+        l2_reg = 0.01 * (mu.pow(2).mean() + logvar.exp().mean())
+        
+        # Add ranking loss component
+        ranking_loss = 0.0
+        pos_mask = (x > x.mean())  # Positive interactions
+        neg_mask = (x <= x.mean())  # Negative interactions
+        
+        if pos_mask.any() and neg_mask.any():
+            # Pre-compute means in one go
+            means = torch.zeros(2, device=recon_x.device)
+            means[0] = recon_x[pos_mask].mean()  # positive mean
+            means[1] = recon_x[neg_mask].mean()  # negative mean
+            
+            # Simple margin loss with vectorized operation
+            margin = 0.1
+            ranking_loss = torch.relu(means[1] - means[0] + margin)
+        
+        return BCE + beta * KLD + 0.1 * ranking_loss + l2_reg

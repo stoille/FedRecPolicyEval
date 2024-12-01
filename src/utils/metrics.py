@@ -86,7 +86,7 @@ def compute_metrics(model, batch, top_k, total_items, device, user_map, temperat
         #logger.info(f"Relevant items: {relevant_items}")
         
         metrics = calculate_recommendation_metrics(
-            top_k_items, relevant_items, top_k, total_items
+            top_k_items, relevant_items, top_k, total_items, model, batch, device
         )
         
         precisions.append(metrics['precision_at_k'])
@@ -109,7 +109,7 @@ def compute_metrics(model, batch, top_k, total_items, device, user_map, temperat
         'eval_ut_norm': np.linalg.norm(ut_vector)
     }
 
-def calculate_recommendation_metrics(top_k_items, relevant_items, top_k, total_items):
+def calculate_recommendation_metrics(top_k_items, relevant_items, top_k, total_items, model, batch, device):
     hits_arr = np.isin(top_k_items, relevant_items)
     
     hits = hits_arr.sum()
@@ -140,7 +140,7 @@ def calculate_recommendation_metrics(top_k_items, relevant_items, top_k, total_i
     
     roc_auc = None
     if len(np.unique(actual)) > 1:
-        roc_auc = roc_auc_score(actual, scores)
+        roc_auc = compute_roc_auc(model, batch, device)
     #logger.info(f"ROC AUC: {roc_auc}")
     return {
         'precision_at_k': precision,
@@ -201,10 +201,12 @@ def train(model, train_loader, optimizer, device, epochs, model_type: str, prefe
                 
             else:  # VAE case
                 ratings = batch.to(device)
-                optimizer.zero_grad()
                 recon_batch, mu, logvar = model(ratings)
+                # Calculate combined loss with ranking component
+                #loss = loss_function(recon_batch, ratings, mu, logvar)
                 loss = model.loss_function(recon_batch, ratings, mu, logvar, beta=beta)
                 rmse = compute_rmse(recon_batch, ratings)
+                optimizer.zero_grad()
             
             loss.backward()
             optimizer.step()
@@ -298,7 +300,7 @@ def evaluate_fn(model, eval_loader, device, top_k, model_type, num_items, user_m
             # Compute loss and RMSE
             if model_type == "vae":
                 recon_batch, mu, logvar = model(batch)
-                loss = loss_function(recon_batch, batch, mu, logvar)
+                loss = F.binary_cross_entropy(recon_batch, batch, reduction='sum')
                 rmse = torch.sqrt(F.mse_loss(recon_batch, batch))
             else:
                 output = model(batch)
@@ -442,18 +444,6 @@ def calculate_global_metrics(top_k_items, top_k_scores, ground_truth, top_k, num
         'roc_auc': roc_auc
     }
 
-def loss_function(recon_x, x, mu, logvar, epoch=1, num_epochs=1):
-    reconstruction_loss = F.binary_cross_entropy(recon_x, x, reduction='mean')
-    kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
-    
-    # Add L2 regularization
-    l2_reg = 0.01 * (mu.pow(2).mean() + logvar.exp().mean())
-    
-    # Gradual KL annealing
-    beta = min(epoch / (num_epochs/2), 1.0) * 0.1
-    
-    return reconstruction_loss + beta * kl_loss + l2_reg
-
 def compute_rmse(predictions, targets):
     # Compute mean squared error
     mse = F.mse_loss(predictions, targets)
@@ -463,78 +453,6 @@ def compute_rmse(predictions, targets):
 def mean_squared_error(y_true, y_pred):
     # Return mean squared error
     return np.mean((y_true - y_pred) ** 2)
-
-def precision_at_k(y_true, y_pred, k):
-    # Convert inputs to numpy arrays if they aren't already
-    y_true = np.array(y_true)
-    y_pred = np.array(y_pred)
-    
-    # Get top k predictions
-    if y_pred.dtype == np.float64:
-        top_k_items = np.argsort(y_pred)[-k:]
-    else:
-        # Handle case where y_pred already contains indices
-        top_k_items = y_pred[:k]
-    
-    # Convert to sets for intersection
-    relevant_items = set(y_true)
-    recommended_items = set(top_k_items)
-    
-    hits = len(relevant_items.intersection(recommended_items))
-    return hits / k if k > 0 else 0.0
-
-def recall_at_k(y_true, y_pred, k):
-    # Convert inputs to numpy arrays if they aren't already
-    y_true = np.array(y_true)
-    y_pred = np.array(y_pred)
-    
-    # Get top k predictions
-    if y_pred.dtype == np.float64:
-        top_k_items = np.argsort(y_pred)[-k:]
-    else:
-        top_k_items = y_pred[:k]
-    
-    # Convert to sets for intersection
-    relevant_items = set(y_true)
-    recommended_items = set(top_k_items)
-    
-    hits = len(relevant_items.intersection(recommended_items))
-    return hits / len(relevant_items) if len(relevant_items) > 0 else 0.0
-
-def ndcg_at_k(y_true, y_pred, k):
-    # Convert inputs to numpy arrays if they aren't already
-    y_true = np.array(y_true)
-    y_pred = np.array(y_pred)
-    
-    if y_pred.dtype == np.float64:
-        top_k_items = np.argsort(y_pred)[-k:]
-    else:
-        top_k_items = y_pred[:k]
-    
-    relevant_items = set(y_true)
-    
-    dcg = sum(1 / np.log2(i + 2) for i, item in enumerate(top_k_items) if item in relevant_items)
-    idcg = sum(1 / np.log2(i + 2) for i in range(min(len(relevant_items), k)))
-    
-    return dcg / idcg if idcg > 0 else 0.0
-
-def coverage(all_recommended_items, total_items, item_popularity=None):
-    """Calculate coverage weighted by item popularity.
-    
-    Args:
-        all_recommended_items: Set of items recommended across all users
-        total_items: Total number of possible items
-        item_popularity: Dict mapping item_id to its popularity score (interaction count)
-    """
-    if item_popularity is None:
-        # Fallback to basic coverage if popularity data not available
-        return len(all_recommended_items) / total_items
-        
-    # Calculate popularity-weighted coverage
-    recommended_pop_sum = sum(item_popularity.get(item, 0) for item in all_recommended_items)
-    total_pop_sum = sum(item_popularity.values())
-    
-    return recommended_pop_sum / total_pop_sum if total_pop_sum > 0 else 0
 
 def compute_roc_auc(model, batch, device):
     """Compute ROC AUC score for model predictions."""
@@ -557,29 +475,36 @@ def compute_roc_auc(model, batch, device):
             recon_batch, _, _ = model(ratings)
             y_pred = recon_batch.cpu().detach().numpy()
             
-            # Keep original shape for VAE predictions
             y_true = y_true.flatten()
             y_pred = y_pred.flatten()
         
-        # Filter out missing/unobserved interactions first
+        # Only consider items with interactions
         mask = y_true != 0
         if mask.sum() > 0:
             y_true = y_true[mask]
             y_pred = y_pred[mask]
             
-            # Convert to binary after filtering
-            y_true_binary = (y_true > 3).astype(int)
+            # Use a better threshold for binary classification
+            y_true_binary = (y_true > y_true.mean()).astype(int)
             
-            # Add logging to debug class distribution
-            unique_classes = np.unique(y_true_binary)
-            logger.info(f"Unique classes in batch: {unique_classes}, Positive samples: {sum(y_true_binary)}, Total: {len(y_true_binary)}")
-            
-            if len(unique_classes) >= 2:
-                return roc_auc_score(y_true_binary, y_pred)
-            else:
-                logger.warning(f"Not enough classes. Found classes: {unique_classes}")
-        
-        return 0.5  # Default value (random classifier performance)
+            # Balance classes if needed
+            if len(np.unique(y_true_binary)) >= 2:
+                pos_samples = y_true_binary.sum()
+                neg_samples = len(y_true_binary) - pos_samples
+                
+                # Apply class weights
+                class_weights = {
+                    0: pos_samples / len(y_true_binary),
+                    1: neg_samples / len(y_true_binary)
+                }
+                
+                return roc_auc_score(
+                    y_true_binary, 
+                    y_pred, 
+                    sample_weight=[class_weights[y] for y in y_true_binary]
+                )
+                
+        return 0.5
         
     except Exception as e:
         logger.warning(f"ROC AUC calculation failed: {str(e)}")
