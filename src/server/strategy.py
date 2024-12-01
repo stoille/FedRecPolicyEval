@@ -173,10 +173,11 @@ class CustomFedAvg(FedAvg):
         for _, fit_res in results:
             for metric_name, value in fit_res.metrics.items():
                 # Skip non-numeric metrics
-                if isinstance(value, (int, float)):
-                    if metric_name not in metrics_aggregated:
-                        metrics_aggregated[metric_name] = 0.0
-                    metrics_aggregated[metric_name] += float(value)
+                if not isinstance(value, (int, float)):
+                    raise ValueError(f"CustomFedAvg: aggregate_fit: Metric {metric_name} is not a number: {value}")
+                if metric_name not in metrics_aggregated:
+                    metrics_aggregated[metric_name] = 0.0
+                metrics_aggregated[metric_name] += float(value)
 
         # Average the metrics
         for name in metrics_aggregated:
@@ -227,17 +228,6 @@ class CustomFedAvg(FedAvg):
         for metric_name, value in metrics_aggregated.items():
             if metric_name in all_metrics['metrics']:
                 all_metrics['metrics'][metric_name].append(float(value))
-        
-        # Update metrics file with divergence metrics
-        all_metrics['metrics'].update({
-            'local_global_divergence': [],
-            'personalization_degree': [],
-            'max_local_divergence': []
-        })
-        
-        for metric_name in ['local_global_divergence', 'personalization_degree', 'max_local_divergence']:
-            if metric_name in metrics_aggregated:
-                all_metrics['metrics'][metric_name].append(float(metrics_aggregated[metric_name]))
         
         # Add logging after loading/before saving
         logger.info(f"Current metrics state: {all_metrics}")
