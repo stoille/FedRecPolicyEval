@@ -3,38 +3,44 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class VAE(nn.Module):
-    def __init__(self, num_items, latent_dim=200):
+    def __init__(self, num_items, hidden_dim=256, latent_dim=128, dropout_rate=0.3, beta=1.0):
         super().__init__()
+        
+        # Encoder
         self.encoder = nn.Sequential(
-            nn.Linear(num_items, 800),
+            nn.Linear(num_items, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(800, 600),
+            nn.Dropout(dropout_rate),
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.BatchNorm1d(hidden_dim // 2),
             nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(600, 400),
-            nn.ReLU(),
+            nn.Dropout(dropout_rate)
         )
         
-        self.fc_mu = nn.Linear(400, latent_dim)
-        self.fc_logvar = nn.Linear(400, latent_dim)
+        # Latent space
+        self.fc_mu = nn.Linear(hidden_dim // 2, latent_dim)
+        self.fc_var = nn.Linear(hidden_dim // 2, latent_dim)
         
+        # Decoder
         self.decoder = nn.Sequential(
-            nn.Linear(latent_dim, 400),
+            nn.Linear(latent_dim, hidden_dim // 2),
+            nn.BatchNorm1d(hidden_dim // 2),
             nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(400, 600),
+            nn.Dropout(dropout_rate),
+            nn.Linear(hidden_dim // 2, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(600, 800),
-            nn.ReLU(),
-            nn.Linear(800, num_items),
+            nn.Dropout(dropout_rate),
+            nn.Linear(hidden_dim, num_items),
             nn.Sigmoid()
         )
+        
+        self.beta = beta
 
     def encode(self, x):
         h = self.encoder(x)
-        return self.fc_mu(h), self.fc_logvar(h)
+        return self.fc_mu(h), self.fc_var(h)
 
     def reparametrize(self, mu, logvar):
         if self.training:

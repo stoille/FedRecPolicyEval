@@ -7,7 +7,9 @@ from flwr.common import GetParametersIns, GetParametersRes, Status, Code, Scalar
 import numpy as np
 from flwr.common import ndarrays_to_parameters
 import json
-
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 # Configure logging at the top of the file
 logging.basicConfig(
     level=logging.INFO,
@@ -22,8 +24,6 @@ from src.models.vae import VAE
 from src.utils.metrics import train, evaluate_fn
 from src.utils.preference_evolution import PreferenceEvolution
 from src.utils.model_utils import set_weights, get_weights
-import torch
-import torch.nn.functional as F
 
 class MovieLensClient(NumPyClient):
     def __init__(
@@ -90,11 +90,26 @@ class MovieLensClient(NumPyClient):
             ).to(device)
             logger.info(f"MF Model embeddings - Users: {self.model.user_factors.num_embeddings}, Items: {self.model.item_factors.num_embeddings}")
         else:
-            self.model = VAE(num_items=self.num_items).to(device)
+            self.model = VAE(
+                num_items=num_items,
+                hidden_dim=256,
+                latent_dim=128,
+                dropout_rate=0.3,
+                beta=1.0
+            ).to(device)
             
-        self.optimizer = torch.optim.Adam(
-            self.model.parameters(),
-                lr=learning_rate
+            def init_weights(m):
+                if isinstance(m, nn.Linear):
+                    torch.nn.init.xavier_normal_(m.weight)
+                    torch.nn.init.zeros_(m.bias)
+                
+            self.model.apply(init_weights)
+            
+            self.optimizer = torch.optim.Adam(
+                self.model.parameters(),
+                lr=learning_rate,
+                weight_decay=1e-4,
+                amsgrad=True
             )
         
         self.preference_evolution = PreferenceEvolution(

@@ -443,14 +443,16 @@ def calculate_global_metrics(top_k_items, top_k_scores, ground_truth, top_k, num
     }
 
 def loss_function(recon_x, x, mu, logvar, epoch=1, num_epochs=1):
-    # Compute binary cross entropy loss for reconstruction
     reconstruction_loss = F.binary_cross_entropy(recon_x, x, reduction='mean')
-    # Compute KL divergence loss
     kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
-    # Compute beta value for KL divergence loss
-    beta = min(epoch / (num_epochs/4), 1.0) * 0.1
-    # Return total loss
-    return reconstruction_loss + beta * kl_loss
+    
+    # Add L2 regularization
+    l2_reg = 0.01 * (mu.pow(2).mean() + logvar.exp().mean())
+    
+    # Gradual KL annealing
+    beta = min(epoch / (num_epochs/2), 1.0) * 0.1
+    
+    return reconstruction_loss + beta * kl_loss + l2_reg
 
 def compute_rmse(predictions, targets):
     # Compute mean squared error
