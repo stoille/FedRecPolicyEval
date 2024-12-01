@@ -21,9 +21,9 @@ def plot_metrics_from_file(history_file: str):
     metrics = data['metrics']
     
     # Training loss plot
-    if 'epoch_train_loss' in metrics:
-        epochs = np.arange(1, len(metrics['epoch_train_loss']) + 1)
-        axs[0, 0].plot(epochs, metrics['epoch_train_loss'], label='Training Loss')
+    if 'train_loss' in metrics:
+        epochs = np.arange(1, len(metrics['train_loss']) + 1)
+        axs[0, 0].plot(epochs, metrics['train_loss'], label='Training Loss')
         axs[0, 0].set_title('Training Loss')
         axs[0, 0].set_xlabel('Client Epochs')
         axs[0, 0].set_ylabel('Loss')
@@ -39,9 +39,9 @@ def plot_metrics_from_file(history_file: str):
         axs[0, 1].legend()
     
     # Training RMSE plot
-    if 'epoch_train_rmse' in metrics:
-        epochs = np.arange(1, len(metrics['epoch_train_rmse']) + 1)
-        axs[1, 0].plot(epochs, metrics['epoch_train_rmse'], label='Training RMSE')
+    if 'train_rmse' in metrics:
+        epochs = np.arange(1, len(metrics['train_rmse']) + 1)
+        axs[1, 0].plot(epochs, metrics['train_rmse'], label='Training RMSE')
         axs[1, 0].set_title('Training RMSE')
         axs[1, 0].set_xlabel('Client Epochs')
         axs[1, 0].set_ylabel('RMSE')

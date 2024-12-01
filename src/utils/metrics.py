@@ -21,8 +21,8 @@ logger = logging.getLogger("Metrics")
 class MetricsLogger:
     def __init__(self):
         self.train_history = {
-            'epoch_train_loss': [],
-            'epoch_train_rmse': [],
+            'train_loss': [],
+            'train_rmse': [],
             'rounds': []
         }
         self.eval_history = {
@@ -219,13 +219,13 @@ def train(model, train_loader, optimizer, device, epochs, model_type: str):
         num_batches += 1
      
         # Log metrics for this epoch
-        metrics_logger.log_metrics({"epoch_train_loss": avg_epoch_loss, "epoch_train_rmse": avg_epoch_rmse}, is_training=True)   
+        metrics_logger.log_metrics({"train_loss": avg_epoch_loss, "train_rmse": avg_epoch_rmse}, is_training=True)   
         logger.info(f"Epoch {epoch+1}/{epochs} | Loss: {avg_epoch_loss:.4f} | RMSE: {avg_epoch_rmse:.4f}")
     
     # Return metrics dictionary with arrays
     return {
-        'epoch_train_loss': epoch_losses,
-        'epoch_train_rmse': epoch_rmses
+        'train_loss': epoch_losses,
+        'train_rmse': epoch_rmses
     }
 
 def eval(model, eval_loader, device, top_k, model_type, num_items, user_map, temperature, negative_penalty, popularity_penalty):
@@ -557,10 +557,10 @@ def update_histories(histories: Dict, metrics: Dict, phase: str = 'train') -> No
     history_key = f'{phase}_history'
     
     if phase == 'train':
-        if 'epoch_train_loss' in metrics:
-            histories[history_key]['epoch_train_loss'].append(metrics['epoch_train_loss'])
-        if 'epoch_train_rmse' in metrics:
-            histories[history_key]['epoch_train_rmse'].append(metrics['epoch_train_rmse'])
+        if 'train_loss' in metrics:
+            histories[history_key]['train_loss'].append(metrics['train_loss'])
+        if 'train_rmse' in metrics:
+            histories[history_key]['train_rmse'].append(metrics['train_rmse'])
         if 'rounds' in metrics:
             histories[history_key]['rounds'].append(metrics['rounds'])
     else:  # test

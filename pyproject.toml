@@ -24,9 +24,9 @@ clientapp = "src.client:app"
 
 [tool.flwr.app.config]
 model-type = "vae"
-num-nodes = 2
-num-server-rounds = 3
-local-epochs = 5
+num-nodes = 99
+num-server-rounds = 99
+local-epochs = 99
 top-k = 10
 learning-rate = 0.0001
 temperature = 0.5

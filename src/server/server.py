@@ -101,7 +101,7 @@ def server_fn(context: Context) -> ServerApp:
             print(f"Found rounds file")
             with open(rounds_file, 'r') as f:
                 rounds_data = json.load(f)
-                print(f"Rounds data: {rounds_data}")
+                #print(f"Rounds data: {rounds_data}")
                 if 'metrics' in rounds_data:
                     for metric_name, values in rounds_data['metrics'].items():
                         if metric_name in consolidated_metrics['metrics']:
@@ -121,7 +121,7 @@ def server_fn(context: Context) -> ServerApp:
             print(f"Found epochs file")
             with open(epochs_file, 'r') as f:
                 epochs_data = json.load(f)
-                print(f"Epochs data: {epochs_data}")
+                #print(f"Epochs data: {epochs_data}")
                 if 'metrics' in epochs_data:
                     # Iterate through each round/client combination
                     for round_client_data in epochs_data['metrics'].values():
@@ -139,8 +139,8 @@ def server_fn(context: Context) -> ServerApp:
         
         # Save consolidated metrics
         output_file = f'metrics/metrics_{metrics_prefix}.json'
-        print(f"Saving consolidated metrics to: {output_file}")
-        print(f"Final metrics: {consolidated_metrics}")
+        #print(f"Saving consolidated metrics to: {output_file}")
+        #print(f"Final metrics: {consolidated_metrics}")
         with open(output_file, 'w') as f:
             json.dump(consolidated_metrics, f)
         

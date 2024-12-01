@@ -99,9 +99,18 @@ class CustomFedAvg(FedAvg):
         failures: List[Union[Tuple[ClientProxy, FitRes], BaseException]],
     ) -> Tuple[Optional[Parameters], Dict[str, Scalar]]:
         """Aggregate fit results using weighted averaging and custom metrics."""
+        logger.info(f"Server round {server_round}:")
+        logger.info(f"Number of results: {len(results)}")
+        logger.info(f"Number of failures: {len(failures)}")
+        
+        if failures:
+            logger.error(f"Failures: {failures}")
+        
         if not results:
-            return None, {}
+            logger.error("No results received from clients")
+            raise ValueError("CustomFedAvg: aggregate_fit: No results to aggregate")
 
+        logger.info(f"Aggregating fit results for round {server_round}")
         # Extract local models and calculate global model
         weights_results = [
             (parameters_to_ndarrays(fit_res.parameters), fit_res.num_examples)
@@ -198,8 +207,6 @@ class CustomFedAvg(FedAvg):
                     'lr_schedule': self.learning_rate_schedule
                 },
                 'metrics': {
-                    'train_loss': [],
-                    'train_rmse': [],
                     'eval_loss': [],
                     'eval_rmse': [],
                     'precision_at_k': [],
@@ -250,7 +257,7 @@ class CustomFedAvg(FedAvg):
     ) -> Tuple[Optional[float], Dict[str, Scalar]]:
         """Aggregate evaluation results."""
         if not results:
-            return None, {}
+            raise ValueError("CustomFedAvg: aggregate_evaluate: No results to aggregate")
 
         metrics_aggregated = {
             'eval_loss': 0.0,

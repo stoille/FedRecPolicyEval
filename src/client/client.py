@@ -158,14 +158,13 @@ class MovieLensClient(NumPyClient):
             for key in epoch_preferences:
                 epoch_preferences[key].append(batch_metrics[key])
         
-        # Average the batch metrics for the epoch
         epoch_metrics = {
-            'epoch_train_loss': train_metrics['epoch_train_loss'],
-            'epoch_train_rmse': train_metrics['epoch_train_rmse'],
-            'ut_norm': np.mean(epoch_preferences['ut_norm']),
-            'likable_prob': np.mean(epoch_preferences['likable_prob']),
-            'nonlikable_prob': np.mean(epoch_preferences['nonlikable_prob']),
-            'correlated_mass': np.mean(epoch_preferences['correlated_mass'])
+            'train_loss': train_metrics['train_loss'],
+            'train_rmse': train_metrics['train_rmse'],
+            'ut_norm': epoch_preferences['ut_norm'],
+            'likable_prob': epoch_preferences['likable_prob'],
+            'nonlikable_prob': epoch_preferences['nonlikable_prob'],
+            'correlated_mass': epoch_preferences['correlated_mass']
         }
         
         # Finalize round-level metrics
@@ -202,33 +201,45 @@ class MovieLensClient(NumPyClient):
                 all_epoch_data = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             all_epoch_data = {
-                'config': config_object,  # Store config in file
+                'config': config_object,
                 'metrics': {}
             }
         
-        # Add new epoch data
-        round_id = int(config.get("round", 0))
-        num_examples = len(self.trainloader.dataset)
-        all_epoch_data['metrics'][f"round_{round_id}_client_{self.client_id}"] = {
-            'train_ut_norm': np.mean(epoch_metrics['ut_norm']),
-            'train_likable_prob': np.mean(epoch_metrics['likable_prob']),
-            'train_nonlikable_prob': np.mean(epoch_metrics['nonlikable_prob']),
-            'train_correlated_mass': np.mean(epoch_metrics['correlated_mass']),
-            'train_loss': epoch_metrics['epoch_train_loss'],
-            'train_rmse': epoch_metrics['epoch_train_rmse']
-        }
+        # Initialize client entry if it doesn't exist
+        client_key = f"client_{self.client_id}"
+        if client_key not in all_epoch_data['metrics']:
+            all_epoch_data['metrics'][client_key] = {
+                'train_ut_norm': [],
+                'train_likable_prob': [],
+                'train_nonlikable_prob': [],
+                'train_correlated_mass': [],
+                'train_loss': [],
+                'train_rmse': []
+            }
+        
+        # Append metrics as single values to flatten the arrays
+        all_epoch_data['metrics'][client_key]['train_ut_norm'].extend(epoch_metrics['ut_norm'])
+        all_epoch_data['metrics'][client_key]['train_likable_prob'].extend(epoch_metrics['likable_prob'])
+        all_epoch_data['metrics'][client_key]['train_nonlikable_prob'].extend(epoch_metrics['nonlikable_prob'])
+        all_epoch_data['metrics'][client_key]['train_correlated_mass'].extend(epoch_metrics['correlated_mass'])
+        all_epoch_data['metrics'][client_key]['train_loss'].extend(epoch_metrics['train_loss'])
+        all_epoch_data['metrics'][client_key]['train_rmse'].extend(epoch_metrics['train_rmse'])
         
         with open(epochs_file, 'w') as f:
             json.dump(all_epoch_data, f)
 
-        # Send filename and config through Flower
+        # Calculate final metrics for the round
         metrics = {
-            'round_id': round_id,
-            'client_id': self.client_id,
-            'metrics_prefix': self.metrics_prefix
+            'train_loss': float(epoch_metrics['train_loss'][-1]),
+            'train_rmse': float(epoch_metrics['train_rmse'][-1]),
+            'ut_norm': float(epoch_metrics['ut_norm'][-1]),
+            'likable_prob': float(epoch_metrics['likable_prob'][-1]),
+            'nonlikable_prob': float(epoch_metrics['nonlikable_prob'][-1]),
+            'correlated_mass': float(epoch_metrics['correlated_mass'][-1])
         }
-
-        return parameters, num_examples, metrics
+        
+        logger.info(f"Client {self.client_id} returning fit results with metrics: {metrics}")
+        return get_weights(self.model), len(self.trainloader.dataset), metrics
 
     def get_batch_predictions(self, batch):
         """Get model predictions for a batch."""

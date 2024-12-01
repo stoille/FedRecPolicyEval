@@ -62,13 +62,13 @@ def train(net, trainloader, epochs, learning_rate, device, total_items):
     optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate, weight_decay=1e-5)
     net.train()
     
-    total_epoch_train_loss = 0.0
+    total_train_loss = 0.0
     for epoch in range(epochs):
         epoch_loss = train_epoch(net, trainloader, optimizer, epoch, epochs, device)
         print(f"Epoch {epoch+1}/{epochs}, Loss: {epoch_loss/len(trainloader)}")
-        total_epoch_train_loss += epoch_loss
+        total_train_loss += epoch_loss
         
-    return {"epoch_train_loss": float(total_epoch_train_loss / (len(trainloader.dataset) * epochs))}
+    return {"train_loss": float(total_train_loss / (len(trainloader.dataset) * epochs))}
 
 def train_epoch(net, trainloader, optimizer, epoch, epochs, device):
     epoch_loss = 0.0

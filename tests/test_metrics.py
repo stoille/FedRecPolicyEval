@@ -29,8 +29,8 @@ class TestMetrics:
     def eval_metrics_logger(self, metrics_logger):
         # Log training metrics
         train_metrics = {
-            'epoch_train_loss': 0.5,
-            'epoch_train_rmse': 0.3
+            'train_loss': 0.5,
+            'train_rmse': 0.3
         }
         metrics_logger.log_metrics(train_metrics, is_training=True)
         metrics_logger.train_history['rounds'].append(1)
@@ -47,8 +47,8 @@ class TestMetrics:
         
         # Assert training metrics
         assert len(metrics_logger.train_history['rounds']) == 1
-        assert metrics_logger.train_history['epoch_train_loss'][0] == 0.5
-        assert metrics_logger.train_history['epoch_train_rmse'][0] == 0.3
+        assert metrics_logger.train_history['train_loss'][0] == 0.5
+        assert metrics_logger.train_history['train_rmse'][0] == 0.3
         
         # Assert test metrics
         assert len(metrics_logger.eval_history['rounds']) == 1
