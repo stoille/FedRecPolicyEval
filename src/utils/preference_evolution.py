@@ -101,10 +101,13 @@ class PreferenceEvolution:
         return None
     
     def _calculate_metrics(self, items, scores):
+        # Calculate item scores as dot product between preferences and items
+        item_scores = torch.matmul(items, self.preferences.unsqueeze(1))
+        
         return {
             'ut_norm': torch.norm(self.preferences).item(),
-            'likable_prob': (self.preferences > 0).float().mean().item(),
-            'nonlikable_prob': (self.preferences < 0).float().mean().item(),
+            'likable_prob': (item_scores > 0).float().mean().item(),  # Based on scores
+            'nonlikable_prob': (item_scores < 0).float().mean().item(),  # Based on scores 
             'correlated_mass': self._calculate_correlation_mass(items, scores)
         }
     
