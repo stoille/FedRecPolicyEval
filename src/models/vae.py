@@ -3,34 +3,27 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class VAE(nn.Module):
-    def __init__(self, num_items, hidden_dim=256, latent_dim=128, dropout_rate=0.3, beta=1.0):
+    def __init__(self, num_items, hidden_dim=512, latent_dim=256, dropout_rate=0.3, beta=1.0):
         super().__init__()
         
-        # Encoder
+        # Wider network
         self.encoder = nn.Sequential(
             nn.Linear(num_items, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
-            nn.ReLU(),
+            nn.LayerNorm(hidden_dim),  # LayerNorm instead of BatchNorm
+            nn.LeakyReLU(),  # LeakyReLU for better gradients
             nn.Dropout(dropout_rate),
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.BatchNorm1d(hidden_dim // 2),
-            nn.ReLU(),
-            nn.Dropout(dropout_rate)
+            nn.Linear(hidden_dim, hidden_dim // 2)
         )
         
-        # Latent space
-        self.fc_mu = nn.Linear(hidden_dim // 2, latent_dim)
-        self.fc_var = nn.Linear(hidden_dim // 2, latent_dim)
+        # Separate positive/negative embeddings
+        self.pos_encoder = nn.Linear(hidden_dim // 2, latent_dim)
+        self.neg_encoder = nn.Linear(hidden_dim // 2, latent_dim)
         
-        # Decoder
+        # Collaborative filtering specific decoder
         self.decoder = nn.Sequential(
-            nn.Linear(latent_dim, hidden_dim // 2),
-            nn.BatchNorm1d(hidden_dim // 2),
-            nn.ReLU(),
-            nn.Dropout(dropout_rate),
-            nn.Linear(hidden_dim // 2, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
-            nn.ReLU(),
+            nn.Linear(latent_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.LeakyReLU(),
             nn.Dropout(dropout_rate),
             nn.Linear(hidden_dim, num_items),
             nn.Sigmoid()
@@ -40,7 +33,7 @@ class VAE(nn.Module):
 
     def encode(self, x):
         h = self.encoder(x)
-        return self.fc_mu(h), self.fc_var(h)
+        return self.pos_encoder(h), self.neg_encoder(h)
 
     def reparametrize(self, mu, logvar):
         if self.training:
