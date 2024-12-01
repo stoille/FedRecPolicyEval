@@ -19,7 +19,7 @@ logger = logging.getLogger("MovieLensClient")
 from src.data.data_loader import load_data
 from src.models.matrix_factorization import MatrixFactorization
 from src.models.vae import VAE
-from src.utils.metrics import train, eval
+from src.utils.metrics import train, evaluate_fn
 from src.utils.preference_evolution import PreferenceEvolution
 from src.utils.model_utils import set_weights, get_weights
 import torch
@@ -256,7 +256,7 @@ class MovieLensClient(NumPyClient):
         set_weights(self.model, parameters)
         
         # Calculate eval metrics
-        eval_metrics = eval(
+        eval_metrics = evaluate_fn(
             model=self.model,
             eval_loader=self.eval_loader,
             device=self.device,
@@ -296,15 +296,15 @@ class MovieLensClient(NumPyClient):
         })
         
         # Finalize the round to get aggregated metrics
-        round_metrics = self.preference_evolution.finalize_round()
+        preference_evolution_metrics = self.preference_evolution.finalize_round()
         
         # Add preference evolution metrics if available
-        if round_metrics:
+        if preference_evolution_metrics:
             eval_metrics.update({
-                'eval_ut_norm': round_metrics['ut_norm'],
-                'eval_likable_prob': round_metrics['likable_prob'],
-                'eval_nonlikable_prob': round_metrics['nonlikable_prob'],
-                'eval_correlated_mass': round_metrics['correlated_mass']
+                'eval_ut_norm': preference_evolution_metrics['ut_norm'],
+                'eval_likable_prob': preference_evolution_metrics['likable_prob'],
+                'eval_nonlikable_prob': preference_evolution_metrics['nonlikable_prob'],
+                'eval_correlated_mass': preference_evolution_metrics['correlated_mass']
             })
         
         return float(eval_metrics['eval_loss']), len(self.eval_loader.dataset), eval_metrics

@@ -80,6 +80,7 @@ def server_fn(context: Context) -> ServerApp:
                 'recall_at_k': [],
                 'ndcg_at_k': [],
                 'coverage': [],
+                'roc_auc': [],
                 'eval_ut_norm': [],
                 'eval_likable_prob': [],
                 'eval_nonlikable_prob': [],

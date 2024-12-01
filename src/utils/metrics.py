@@ -228,7 +228,7 @@ def train(model, train_loader, optimizer, device, epochs, model_type: str):
         'train_rmse': epoch_rmses
     }
 
-def eval(model, eval_loader, device, top_k, model_type, num_items, user_map, temperature, negative_penalty, popularity_penalty):
+def evaluate_fn(model, eval_loader, device, top_k, model_type, num_items, user_map, temperature, negative_penalty, popularity_penalty):
     """Test the model and return metrics."""
     model.eval()
     round_eval_loss = 0.0
@@ -237,7 +237,7 @@ def eval(model, eval_loader, device, top_k, model_type, num_items, user_map, tem
     all_recalls = []
     all_ndcgs = []
     all_coverages = []
-    
+    all_roc_aucs = []
     with torch.no_grad():
         for batch in eval_loader:
             # Move batch to device
@@ -265,6 +265,7 @@ def eval(model, eval_loader, device, top_k, model_type, num_items, user_map, tem
             all_recalls.append(metrics['recall_at_k'])
             all_ndcgs.append(metrics['ndcg_at_k'])
             all_coverages.append(metrics['coverage'])
+            all_roc_aucs.append(metrics['roc_auc'])
             
             # Compute loss and RMSE
             if model_type == "vae":
@@ -286,6 +287,7 @@ def eval(model, eval_loader, device, top_k, model_type, num_items, user_map, tem
     avg_recall = np.mean(all_recalls) if all_recalls else 0.0
     avg_ndcg = np.mean(all_ndcgs) if all_ndcgs else 0.0
     coverage = np.mean(all_coverages) if all_coverages else 0.0
+    avg_roc_auc = np.mean(all_roc_aucs) if all_roc_aucs else 0.0
     #logger.info(f"Avg round eval loss: {avg_round_eval_loss}")
     #logger.info(f"Avg round test rmse: {avg_round_eval_rmse}")
     #logger.info(f"Avg precision: {avg_precision}")
@@ -298,7 +300,8 @@ def eval(model, eval_loader, device, top_k, model_type, num_items, user_map, tem
         'precision_at_k': avg_precision,
         'recall_at_k': avg_recall,
         'ndcg_at_k': avg_ndcg,
-        'coverage': coverage
+        'coverage': coverage,
+        'roc_auc': avg_roc_auc
     }
 
 def calculate_global_metrics(top_k_items, top_k_scores, ground_truth, top_k, num_items, popularity_penalty, model_type="MF"):

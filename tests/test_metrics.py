@@ -75,7 +75,7 @@ class TestMetrics:
                 ], dtype=torch.float32)
                 return predictions, torch.zeros_like(predictions), torch.zeros_like(predictions)
 
-            def eval(self):
+            def evaluate_fn(self):
                 pass
 
             def to(self, device):
@@ -149,7 +149,7 @@ class TestMetrics:
                 # Return predictions matching input shape (2x3)
                 return torch.tensor([[0.9, 0.2, 0.8], [0.1, 0.7, 0.3]])
             
-            def eval(self):
+            def evaluate_fn(self):
                 pass
             
             def to(self, device):
