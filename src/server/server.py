@@ -49,10 +49,10 @@ def server_fn(context: Context) -> ServerApp:
         file_path = f'metrics/{file_type}_{metrics_prefix}.json'
         if os.path.exists(file_path):
             os.remove(file_path)
-            print(f"Cleared existing {file_path}")
+            #print(f"Cleared existing {file_path}")
     
     def on_exit():
-        print(f"Starting consolidation for prefix: {metrics_prefix}")
+        #print(f"Starting consolidation for prefix: {metrics_prefix}")
         
         # Ensure metrics directory exists
         os.makedirs('metrics', exist_ok=True)
@@ -97,7 +97,7 @@ def server_fn(context: Context) -> ServerApp:
         
         # Load rounds file
         rounds_file = f'metrics/rounds_{metrics_prefix}.json'
-        print(f"Looking for rounds file: {rounds_file}")
+        #print(f"Looking for rounds file: {rounds_file}")
         if os.path.exists(rounds_file):
             print(f"Found rounds file")
             with open(rounds_file, 'r') as f:
@@ -117,7 +117,7 @@ def server_fn(context: Context) -> ServerApp:
             
         # Load epochs file
         epochs_file = f'metrics/epochs_{metrics_prefix}.json'
-        print(f"Looking for epochs file: {epochs_file}")
+        #print(f"Looking for epochs file: {epochs_file}")
         if os.path.exists(epochs_file):
             print(f"Found epochs file")
             with open(epochs_file, 'r') as f:

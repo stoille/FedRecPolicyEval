@@ -55,7 +55,6 @@ def load_data(model_type: str = 'vae') -> tuple[DataLoader, DataLoader, dict]:
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
     eval_loader = DataLoader(eval_dataset, batch_size=32, shuffle=False)
     
-    logger.info("Checking data ranges:")
     for batch in train_loader:
         if model_type == 'mf':
             user_ids, item_ids, _ = batch

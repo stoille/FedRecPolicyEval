@@ -149,7 +149,7 @@ def calculate_recommendation_metrics(top_k_items, relevant_items, top_k, total_i
         'roc_auc': roc_auc
     }
 
-def train(model, train_loader, optimizer, device, epochs, model_type: str):
+def train(model, train_loader, optimizer, device, epochs, model_type: str, preference_evolution=None):
     model.train()
     total_loss = 0.0
     total_rmse = 0.0
@@ -160,6 +160,12 @@ def train(model, train_loader, optimizer, device, epochs, model_type: str):
     beta_end = 0.1
     epoch_losses = []  # Track losses as array
     epoch_rmses = []   # Track RMSEs as array
+    epoch_preferences = {
+        'ut_norm': [],
+        'likable_prob': [],
+        'nonlikable_prob': [],
+        'correlated_mass': []
+    }
     
     for epoch in range(epochs):
         epoch_loss = 0.0
@@ -205,8 +211,8 @@ def train(model, train_loader, optimizer, device, epochs, model_type: str):
             
             epoch_loss += loss.item()
             epoch_rmse += rmse
-            epoch_batches += 1
-            
+            epoch_batches += 1     
+        
         # Average metrics for this epoch
         avg_epoch_loss = epoch_loss / epoch_batches
         avg_epoch_rmse = epoch_rmse / epoch_batches
@@ -220,12 +226,34 @@ def train(model, train_loader, optimizer, device, epochs, model_type: str):
      
         # Log metrics for this epoch
         metrics_logger.log_metrics({"train_loss": avg_epoch_loss, "train_rmse": avg_epoch_rmse}, is_training=True)   
-        logger.info(f"Epoch {epoch+1}/{epochs} | Loss: {avg_epoch_loss:.4f} | RMSE: {avg_epoch_rmse:.4f}")
+        #logger.info(f"Epoch {epoch+1}/{epochs} | Loss: {avg_epoch_loss:.4f} | RMSE: {avg_epoch_rmse:.4f}")
+        
+        # Update preferences simulation
+        if model_type == 'mf':
+            items = model.item_factors.weight[item_ids]
+            scores = predictions.view(-1, 1)
+        else:
+            items = batch.to(device)
+            recon_x, mu, logvar = model(items)
+            # Compute per-user reconstruction loss
+            per_user_recon_loss = F.binary_cross_entropy(recon_x, items, reduction='none').sum(dim=1)
+            # Invert loss to get scores (higher is better)
+            scores = -per_user_recon_loss  # Invert loss for scores
+        
+        preference_evolution.update_preferences(items, scores, is_round=False)
+        divergence_metrics = preference_evolution.get_current_metrics(items, scores)
+        
+        for key in epoch_preferences:
+            epoch_preferences[key].append(np.mean(divergence_metrics[key]))
     
     # Return metrics dictionary with arrays
     return {
         'train_loss': epoch_losses,
-        'train_rmse': epoch_rmses
+        'train_rmse': epoch_rmses,
+        'ut_norm': epoch_preferences['ut_norm'],
+        'likable_prob': epoch_preferences['likable_prob'],
+        'nonlikable_prob': epoch_preferences['nonlikable_prob'],
+        'correlated_mass': epoch_preferences['correlated_mass']
     }
 
 def evaluate_fn(model, eval_loader, device, top_k, model_type, num_items, user_map, temperature, negative_penalty, popularity_penalty):
@@ -575,11 +603,6 @@ def calculate_model_divergence(local_vectors: List[np.ndarray], global_vector: n
     """Calculate divergence metrics between local and global models."""
     divergence_metrics = {}
     
-    # Debug prints
-    print(f"Number of local vectors: {len(local_vectors)}")
-    print(f"Shape of first local vector: {local_vectors[0].shape}")
-    print(f"Shape of global vector: {global_vector.shape}")
-    
     # Ensure vectors are properly shaped for cosine distance
     def reshape_vector(v):
         return v.flatten() if len(v.shape) > 1 else v
@@ -607,16 +630,11 @@ def calculate_model_divergence(local_vectors: List[np.ndarray], global_vector: n
                 if norm_product > 0:
                     cos_dist = 1 - np.dot(vec_i, vec_j) / norm_product
                     pairwise_distances.append(cos_dist)
-                    print(f"Pairwise distance between models {i} and {j}: {cos_dist}")
     
     # Calculate metrics with safeguards
     local_global_div = np.mean(cosine_distances) if cosine_distances else 0.0
     personalization_degree = np.mean(pairwise_distances) if pairwise_distances else 0.0
     max_local_div = max(pairwise_distances) if pairwise_distances else 0.0
-    
-    print(f"Local-global divergence: {local_global_div}")
-    print(f"Local-local divergence (aka personalization): {personalization_degree}")
-    print(f"Max local divergence: {max_local_div}")
     
     divergence_metrics.update({
         'local_global_divergence': float(local_global_div),

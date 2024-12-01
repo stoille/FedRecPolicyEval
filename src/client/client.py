@@ -124,48 +124,9 @@ class MovieLensClient(NumPyClient):
             optimizer=self.optimizer,
             device=self.device,
             epochs=self.local_epochs,
-            model_type=self.model_type
+            model_type=self.model_type,
+            preference_evolution=self.preference_evolution
         )
-        
-        # Update preference evolution
-        epoch_preferences = {
-            'ut_norm': [],
-            'likable_prob': [],
-            'nonlikable_prob': [],
-            'correlated_mass': []
-        }
-        
-        for batch in self.trainloader:
-            if self.model_type == 'mf':
-                user_ids, item_ids, ratings = [b.to(self.device) for b in batch]
-                items = self.model.item_factors.weight[item_ids]
-                scores = self.model(user_ids, item_ids)
-                scores = scores.view(-1, 1)
-            else:  # VAE
-                items = batch.to(self.device)
-                recon_x, mu, logvar = self.model(items)
-                # Compute per-user reconstruction loss
-                per_user_recon_loss = F.binary_cross_entropy(recon_x, items, reduction='none').sum(dim=1)
-                # Invert loss to get scores (higher is better)
-                scores = -per_user_recon_loss
-                # No need to reshape scores; it has shape [batch_size]
-            
-            # Update preferences for this epoch
-            self.preference_evolution.update_preferences(items, scores, is_round=False)
-            batch_metrics = self.preference_evolution.get_current_metrics(items, scores)
-            
-            # Accumulate batch metrics
-            for key in epoch_preferences:
-                epoch_preferences[key].append(batch_metrics[key])
-        
-        epoch_metrics = {
-            'train_loss': train_metrics['train_loss'],
-            'train_rmse': train_metrics['train_rmse'],
-            'ut_norm': epoch_preferences['ut_norm'],
-            'likable_prob': epoch_preferences['likable_prob'],
-            'nonlikable_prob': epoch_preferences['nonlikable_prob'],
-            'correlated_mass': epoch_preferences['correlated_mass']
-        }
         
         # Finalize round-level metrics
         round_preferences = self.preference_evolution.finalize_round()
@@ -173,10 +134,10 @@ class MovieLensClient(NumPyClient):
         # Provide default values if round_preferences is None
         if round_preferences is None:
             round_preferences = {
-                'ut_norm': 0.0,
-                'likable_prob': 0.0,
-                'nonlikable_prob': 0.0,
-                'correlated_mass': 0.0
+                'ut_norm': [],
+                'likable_prob': [],
+                'nonlikable_prob': [],
+                'correlated_mass': []
             }
         
         # Get experiment config from client init params
@@ -218,27 +179,27 @@ class MovieLensClient(NumPyClient):
             }
         
         # Append metrics as single values to flatten the arrays
-        all_epoch_data['metrics'][client_key]['train_ut_norm'].extend(epoch_metrics['ut_norm'])
-        all_epoch_data['metrics'][client_key]['train_likable_prob'].extend(epoch_metrics['likable_prob'])
-        all_epoch_data['metrics'][client_key]['train_nonlikable_prob'].extend(epoch_metrics['nonlikable_prob'])
-        all_epoch_data['metrics'][client_key]['train_correlated_mass'].extend(epoch_metrics['correlated_mass'])
-        all_epoch_data['metrics'][client_key]['train_loss'].extend(epoch_metrics['train_loss'])
-        all_epoch_data['metrics'][client_key]['train_rmse'].extend(epoch_metrics['train_rmse'])
+        all_epoch_data['metrics'][client_key]['train_ut_norm'].extend(train_metrics['ut_norm'])
+        all_epoch_data['metrics'][client_key]['train_likable_prob'].extend(train_metrics['likable_prob'])
+        all_epoch_data['metrics'][client_key]['train_nonlikable_prob'].extend(train_metrics['nonlikable_prob'])
+        all_epoch_data['metrics'][client_key]['train_correlated_mass'].extend(train_metrics['correlated_mass'])
+        all_epoch_data['metrics'][client_key]['train_loss'].extend(train_metrics['train_loss'])
+        all_epoch_data['metrics'][client_key]['train_rmse'].extend(train_metrics['train_rmse'])
         
         with open(epochs_file, 'w') as f:
             json.dump(all_epoch_data, f)
 
         # Calculate final metrics for the round
         metrics = {
-            'train_loss': float(epoch_metrics['train_loss'][-1]),
-            'train_rmse': float(epoch_metrics['train_rmse'][-1]),
-            'ut_norm': float(epoch_metrics['ut_norm'][-1]),
-            'likable_prob': float(epoch_metrics['likable_prob'][-1]),
-            'nonlikable_prob': float(epoch_metrics['nonlikable_prob'][-1]),
-            'correlated_mass': float(epoch_metrics['correlated_mass'][-1])
+            'train_loss': float(train_metrics['train_loss'][-1]),
+            'train_rmse': float(train_metrics['train_rmse'][-1]),
+            'ut_norm': float(train_metrics['ut_norm'][-1]),
+            'likable_prob': float(train_metrics['likable_prob'][-1]),
+            'nonlikable_prob': float(train_metrics['nonlikable_prob'][-1]),
+            'correlated_mass': float(train_metrics['correlated_mass'][-1])
         }
         
-        logger.info(f"Client {self.client_id} returning fit results with metrics: {metrics}")
+        print(f"Client {self.client_id} returning fit results with metrics: {metrics}")
         return get_weights(self.model), len(self.trainloader.dataset), metrics
 
     def get_batch_predictions(self, batch):

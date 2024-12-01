@@ -65,7 +65,7 @@ def train(net, trainloader, epochs, learning_rate, device, total_items):
     total_train_loss = 0.0
     for epoch in range(epochs):
         epoch_loss = train_epoch(net, trainloader, optimizer, epoch, epochs, device)
-        print(f"Epoch {epoch+1}/{epochs}, Loss: {epoch_loss/len(trainloader)}")
+        #print(f"Epoch {epoch+1}/{epochs}, Loss: {epoch_loss/len(trainloader)}")
         total_train_loss += epoch_loss
         
     return {"train_loss": float(total_train_loss / (len(trainloader.dataset) * epochs))}
