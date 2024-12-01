@@ -20,7 +20,7 @@ def plot_metrics_from_file(history_file: str):
     fig, axs = plt.subplots(5, 2, figsize=(15, 30))
     metrics = data['metrics']
     
-    # Training metrics (top row)
+    # Loss metrics (row 0)
     if 'train_loss' in metrics:
         epochs = np.arange(1, len(metrics['train_loss']) + 1)
         axs[0, 0].plot(epochs, metrics['train_loss'], label='Training Loss')
@@ -37,7 +37,7 @@ def plot_metrics_from_file(history_file: str):
         axs[0, 1].set_ylabel('Loss')
         axs[0, 1].legend()
     
-    # Split RMSE metrics into separate plots
+    # RMSE metrics (row 1)
     if 'train_rmse' in metrics:
         epochs = np.arange(1, len(metrics['train_rmse']) + 1)
         axs[1, 0].plot(epochs, metrics['train_rmse'], label='Training RMSE')
@@ -54,49 +54,58 @@ def plot_metrics_from_file(history_file: str):
         axs[1, 1].set_ylabel('RMSE')
         axs[1, 1].legend()
     
-    # Move ROC AUC to [2, 0]
-    if 'roc_auc' in metrics:
-        rounds = np.arange(1, len(metrics['roc_auc']) + 1)
-        axs[2, 0].plot(rounds, metrics['roc_auc'], label='ROC AUC')
-        axs[2, 0].set_title('ROC AUC Score')
-        axs[2, 0].set_xlabel('Rounds')
-        axs[2, 0].set_ylabel('Score')
-        axs[2, 0].set_ylim([0, 1])
-        axs[2, 0].legend()
+    # User Preference Evolution (row 2)
+    if 'train_ut_norm' in metrics:
+        epochs = np.arange(1, len(metrics['train_ut_norm']) + 1)
+        axs[2, 0].plot(epochs, metrics['train_ut_norm'], label='Training User Preference Norm')
+    if 'eval_ut_norm' in metrics:
+        rounds = np.arange(1, len(metrics['eval_ut_norm']) + 1)
+        axs[2, 0].plot(rounds, metrics['eval_ut_norm'], label='Eval User Preference Norm')
+    axs[2, 0].set_title('User Preference Evolution')
+    axs[2, 0].set_xlabel('Rounds/Epochs')
+    axs[2, 0].set_ylabel('Norm')
+    axs[2, 0].legend()
     
-    # Move Recommendation metrics to [2, 1]
+    # Probability metrics (row 2)
+    prob_metrics = ['train_likable_prob', 'train_nonlikable_prob', 'eval_likable_prob', 'eval_nonlikable_prob']
+    for metric in prob_metrics:
+        if metric in metrics:
+            x = np.arange(1, len(metrics[metric]) + 1)
+            label = metric.replace('_prob', '').replace('_', ' ').title()
+            if 'train' in metric:
+                label = f"Training {label.replace('Train ', '')}"
+            else:
+                label = f"Eval {label.replace('Eval ', '')}"
+            axs[2, 1].plot(x, metrics[metric], 
+                          label=label,
+                          linestyle='--' if 'train' in metric else '-')
+    axs[2, 1].set_title('Item Type Probabilities')
+    axs[2, 1].set_xlabel('Rounds/Epochs')
+    axs[2, 1].set_ylabel('Probability')
+    axs[2, 1].legend()
+    
+    # Recommendation metrics (row 3)
     rec_metrics = ['precision_at_k', 'recall_at_k', 'ndcg_at_k', 'coverage']
     for metric in rec_metrics:
         if metric in metrics:
             rounds = np.arange(1, len(metrics[metric]) + 1)
-            axs[2, 1].plot(rounds, metrics[metric], label=metric.replace('_', ' ').title())
-    axs[2, 1].set_title('Recommendation Metrics')
-    axs[2, 1].set_xlabel('Rounds')
-    axs[2, 1].set_ylabel('Value')
-    axs[2, 1].legend()
+            axs[3, 0].plot(rounds, metrics[metric], label=metric.replace('_', ' ').title())
+    axs[3, 0].set_title('Recommendation Metrics')
+    axs[3, 0].set_xlabel('Rounds')
+    axs[3, 0].set_ylabel('Value')
+    axs[3, 0].legend()
     
-    # Move User Preference Evolution to [3, 0]
-    if 'eval_ut_norm' in metrics:
-        rounds = np.arange(1, len(metrics['eval_ut_norm']) + 1)
-        axs[3, 0].plot(rounds, metrics['eval_ut_norm'], label='User Preference Norm')
-        axs[3, 0].set_title('User Preference Evolution')
-        axs[3, 0].set_xlabel('Rounds')
-        axs[3, 0].set_ylabel('Norm')
-        axs[3, 0].legend()
+    # ROC AUC (row 3)
+    if 'roc_auc' in metrics:
+        rounds = np.arange(1, len(metrics['roc_auc']) + 1)
+        axs[3, 1].plot(rounds, metrics['roc_auc'], label='ROC AUC')
+        axs[3, 1].set_title('ROC AUC Score')
+        axs[3, 1].set_xlabel('Rounds')
+        axs[3, 1].set_ylabel('Score')
+        axs[3, 1].set_ylim([0, 1])
+        axs[3, 1].legend()
     
-    # Move Probability metrics to [3, 1]
-    prob_metrics = ['eval_likable_prob', 'eval_nonlikable_prob']
-    for metric in prob_metrics:
-        if metric in metrics:
-            rounds = np.arange(1, len(metrics[metric]) + 1)
-            axs[3, 1].plot(rounds, metrics[metric], 
-                          label=metric.replace('eval_', '').replace('_prob', '').replace('_', ' ').title())
-    axs[3, 1].set_title('Item Type Probabilities')
-    axs[3, 1].set_xlabel('Rounds')
-    axs[3, 1].set_ylabel('Probability')
-    axs[3, 1].legend()
-    
-    # Add divergence metrics to [4, 0]
+    # Model Divergence metrics (row 4)
     div_metrics = ['local_global_divergence', 'personalization_degree']
     for metric in div_metrics:
         if metric in metrics:
@@ -106,10 +115,19 @@ def plot_metrics_from_file(history_file: str):
     axs[4, 0].set_xlabel('Rounds')
     axs[4, 0].set_ylabel('Divergence')
     axs[4, 0].legend()
-    axs[4, 0].set_ylim(bottom=0)  # Start y-axis at 0 for better perspective
+    axs[4, 0].set_ylim(bottom=0)
     
-    # Hide the unused subplot
-    axs[4, 1].set_visible(False)
+    # Correlated Mass (row 4)
+    if 'train_correlated_mass' in metrics:
+        epochs = np.arange(1, len(metrics['train_correlated_mass']) + 1)
+        axs[4, 1].plot(epochs, metrics['train_correlated_mass'], label='Training')
+    if 'eval_correlated_mass' in metrics:
+        rounds = np.arange(1, len(metrics['eval_correlated_mass']) + 1)
+        axs[4, 1].plot(rounds, metrics['eval_correlated_mass'], label='Eval')
+    axs[4, 1].set_title('Correlated Mass')
+    axs[4, 1].set_xlabel('Rounds/Epochs')
+    axs[4, 1].set_ylabel('Value')
+    axs[4, 1].legend()
     
     plt.tight_layout()
     plt.savefig(f"{output_dir}/{base_filename}.png")
