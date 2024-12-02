@@ -128,6 +128,7 @@ def plot_metrics_from_file(history_file: str):
     axs[4, 1].set_xlabel('Rounds/Epochs')
     axs[4, 1].set_ylabel('Value')
     axs[4, 1].legend()
+    axs[4, 1].set_ylim(0, 1)
     
     plt.tight_layout()
     plt.savefig(f"{output_dir}/{base_filename}.png")

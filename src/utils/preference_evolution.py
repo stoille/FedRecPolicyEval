@@ -112,17 +112,21 @@ class PreferenceEvolution:
         }
     
     def _calculate_correlation_mass(self, items, scores):
-        # Debug shapes
-        #logger.debug(f"_calculate_correlation_mass - items shape: {items.shape}, scores shape: {scores.shape}")
-        
-        # For VAE, scores is a single value per item, so we need to expand it
-        if len(scores.shape) == 1:
-            scores = scores.unsqueeze(1)  # Add dimension to make it [batch_size, 1]
-        
-        # Calculate item scores
+        # Calculate cosine similarity between items and preferences
         item_scores = torch.matmul(items, self.preferences.unsqueeze(1))
         
-        # Ensure broadcasting works correctly
-        scores = scores.expand_as(item_scores)
+        # Calculate normalized correlation (cosine similarity)
+        items_norm = torch.norm(items, dim=1, keepdim=True)
+        pref_norm = torch.norm(self.preferences)
+        cos_sim = item_scores / (items_norm * pref_norm + 1e-8)
         
-        return (scores * item_scores).mean().item()
+        # Use fixed threshold (e.g. 0.1) to see how correlations evolve
+        threshold = 0.1  # We should see this fraction increase over time
+        prob_well_correlated = (cos_sim > threshold).float().mean()
+        
+        # Debug: print distribution occasionally
+        if torch.rand(1).item() < 0.01:
+            logger.info(f"Cosine similarities: min={cos_sim.min():.3f}, max={cos_sim.max():.3f}, mean={cos_sim.mean():.3f}")
+            logger.info(f"Fraction above threshold: {prob_well_correlated:.3f}")
+        
+        return 1 - prob_well_correlated.item()
