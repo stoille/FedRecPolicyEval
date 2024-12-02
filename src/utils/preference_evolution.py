@@ -129,4 +129,4 @@ class PreferenceEvolution:
             logger.info(f"Cosine similarities: min={cos_sim.min():.3f}, max={cos_sim.max():.3f}, mean={cos_sim.mean():.3f}")
             logger.info(f"Fraction above threshold: {prob_well_correlated:.3f}")
         
-        return 1 - prob_well_correlated.item()
+        return prob_well_correlated.item()
